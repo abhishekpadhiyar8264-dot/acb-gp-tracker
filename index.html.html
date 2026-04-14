@@ -1,0 +1,1768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ACB GP Tracker v3 — Live Sync</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+:root{
+  --bg:#080d1a;--bg2:#0f1626;--bg3:#161f33;--bg4:#1e2a42;--bg5:#253350;
+  --bdr:#253350;--bdr2:#2e3f5e;
+  --t1:#e4ecf7;--t2:#8ca0be;--t3:#4d6080;
+  --teal:#00c896;--teal2:#00a07a;
+  --blue:#4183ff;--blue2:#2a63d4;
+  --purple:#8b5cf6;--amber:#f5a623;--red:#ff4d4d;--green:#22d46c;
+  --glass:rgba(22,31,51,0.9);
+}
+[data-theme=light]{
+  --bg:#eef1f8;--bg2:#fff;--bg3:#f4f6fc;--bg4:#e8ecf5;--bg5:#dde3f0;
+  --bdr:#d0d8ec;--bdr2:#b8c4de;
+  --t1:#0f1626;--t2:#3d4f6e;--t3:#7a8fad;
+  --glass:rgba(255,255,255,0.95);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--t1);font-family:'DM Sans',sans-serif;overflow-x:hidden;}
+/* ===SYNC INDICATOR=== */
+#syncBadge{position:fixed;bottom:16px;right:16px;padding:8px 14px;border-radius:20px;font-size:.75rem;font-weight:600;z-index:9000;display:flex;align-items:center;gap:6px;backdrop-filter:blur(10px);border:1px solid var(--bdr);transition:.3s;}
+#syncBadge.online{background:rgba(0,200,150,.15);color:var(--teal);border-color:rgba(0,200,150,.3);}
+#syncBadge.offline{background:rgba(255,77,77,.15);color:var(--red);border-color:rgba(255,77,77,.3);}
+#syncBadge.syncing{background:rgba(65,131,255,.15);color:var(--blue);border-color:rgba(65,131,255,.3);}
+.sync-dot{width:8px;height:8px;border-radius:50%;animation:pulse 1.5s infinite;}
+.online .sync-dot{background:var(--teal);}
+.offline .sync-dot{background:var(--red);}
+.syncing .sync-dot{background:var(--blue);}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+/* ===FIREBASE SETUP MODAL=== */
+#firebaseSetup{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.85);backdrop-filter:blur(10px);}
+#firebaseSetup.active{display:flex;}
+.fb-box{width:540px;max-height:90vh;overflow-y:auto;background:var(--bg3);border:1px solid var(--bdr2);border-radius:22px;padding:36px;box-shadow:0 40px 80px rgba(0,0,0,.6);}
+.fb-box h2{color:var(--teal);font-size:1.4rem;margin-bottom:6px;}
+.fb-box p{color:var(--t2);font-size:.83rem;margin-bottom:20px;}
+.fb-box .step{background:var(--bg4);border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid var(--bdr);}
+.fb-box .step h4{color:var(--teal);font-size:.85rem;margin-bottom:6px;}
+.fb-box .step p{color:var(--t2);font-size:.78rem;margin-bottom:0;}
+.fb-box .step code{background:var(--bg2);padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--amber);}
+.fb-input{width:100%;padding:12px 14px;margin:6px 0;background:var(--bg2);border:1.5px solid var(--bdr);border-radius:8px;color:var(--t1);font-size:.88rem;font-family:'DM Sans',sans-serif;outline:none;transition:.2s;}
+.fb-input:focus{border-color:var(--teal);}
+.fb-input::placeholder{color:var(--t3);}
+/* ===LOGIN=== */
+#loginOverlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 30% 40%,#0d1f4a 0%,#04080f 70%);}
+.lbox{width:420px;background:rgba(15,22,38,0.97);border:1px solid var(--bdr2);border-radius:22px;padding:48px 40px;text-align:center;box-shadow:0 50px 100px rgba(0,0,0,.7);}
+.lbox-icon{width:64px;height:64px;margin:0 auto 18px;background:linear-gradient(135deg,var(--teal),var(--blue));border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;color:#fff;}
+.lbox h2{font-size:1.9rem;font-weight:700;color:#fff;margin-bottom:4px;letter-spacing:-.5px;}
+.lbox p{color:#4d6080;font-size:.88rem;margin-bottom:30px;}
+.lbox select,.lbox input{width:100%;padding:13px 15px;margin:7px 0;background:rgba(255,255,255,0.05);border:1.5px solid #253350;color:#c8d8f0;border-radius:10px;font-size:.93rem;font-family:'DM Sans',sans-serif;outline:none;transition:.2s;}
+.lbox select option{background:#0f1626;}
+.lbox select:focus,.lbox input:focus{border-color:var(--teal);}
+.btn-lg{width:100%;padding:14px;background:linear-gradient(135deg,var(--teal),var(--blue));color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;margin-top:14px;font-family:'DM Sans',sans-serif;transition:.2s;}
+.btn-lg:hover{opacity:.9;}
+#lErr{color:var(--red);font-size:.83rem;margin-top:10px;display:none;}
+.remember-wrap{display:flex;align-items:center;gap:8px;margin-top:12px;justify-content:center;}
+.remember-wrap input[type=checkbox]{accent-color:var(--teal);width:16px;height:16px;}
+.remember-wrap label{color:var(--t2);font-size:.82rem;cursor:pointer;}
+/* ===HEADER=== */
+.hdr{background:var(--glass);border-bottom:1px solid var(--bdr);padding:13px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:200;backdrop-filter:blur(20px);}
+.hdr-logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.2rem;}
+.hdr-logo-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--teal),var(--blue));border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:.85rem;}
+.hdr-right{display:flex;align-items:center;gap:14px;}
+.thm{width:42px;height:22px;background:var(--bg4);border-radius:11px;position:relative;cursor:pointer;border:1px solid var(--bdr);}
+.thm::after{content:'';position:absolute;width:16px;height:16px;background:var(--teal);border-radius:50%;top:2px;left:3px;transition:.3s;}
+[data-theme=light] .thm::after{left:23px;background:var(--blue);}
+.uchip{display:flex;align-items:center;gap:9px;background:var(--bg3);padding:6px 14px;border-radius:30px;border:1px solid var(--bdr);font-size:.85rem;}
+.uchip .br{color:var(--blue);font-weight:600;}
+.lout{color:var(--red);cursor:pointer;font-size:.85rem;font-weight:600;display:flex;align-items:center;gap:5px;}
+/* ===CONTAINER=== */
+.wrap{padding:20px 24px;max-width:1900px;margin:auto;}
+/* ===BRANCH TABS=== */
+.btabs{display:flex;gap:4px;background:var(--bg3);padding:5px;border-radius:12px;border:1px solid var(--bdr);margin-bottom:18px;flex-wrap:wrap;}
+.btab{padding:9px 18px;border-radius:8px;cursor:pointer;font-weight:600;font-size:.85rem;transition:.2s;color:var(--t2);display:flex;align-items:center;gap:7px;}
+.btab:hover{background:var(--bg4);}
+.btab.active{background:linear-gradient(135deg,var(--teal),var(--blue));color:#fff;}
+.btab .c{background:rgba(255,255,255,.2);padding:1px 7px;border-radius:8px;font-size:.72rem;}
+/* ===SECTION TABS=== */
+.stabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap;}
+.stab{padding:8px 16px;border-radius:7px;cursor:pointer;font-weight:600;font-size:.83rem;border:1.5px solid var(--bdr);background:var(--bg3);color:var(--t2);transition:.2s;}
+.stab:hover{border-color:var(--teal);color:var(--teal);}
+.stab.active{border-color:var(--teal);color:var(--teal);background:rgba(0,200,150,.08);}
+.stab.mehul{border-color:var(--amber);color:var(--amber);}
+.stab.mehul.active{background:rgba(245,166,35,.08);}
+/* ===DATE BAR=== */
+.dbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px;background:var(--bg3);padding:11px 16px;border-radius:10px;border:1px solid var(--bdr);}
+.dbar label{font-size:.78rem;color:var(--t2);font-weight:600;}
+.dbar input[type=date]{padding:7px 10px;background:var(--bg2);border:1.5px solid var(--bdr);border-radius:7px;color:var(--t1);font-family:'DM Sans',sans-serif;font-size:.85rem;}
+/* ===PANELS=== */
+.panel{display:none;}.panel.active{display:block;}
+/* ===KPI=== */
+.kgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px;}
+.kcard{background:var(--bg3);border:1px solid var(--bdr);border-radius:13px;padding:18px;position:relative;overflow:hidden;transition:.2s;}
+.kcard::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--kc1,var(--teal)),var(--kc2,var(--blue)));}
+.kcard:hover{border-color:var(--teal);transform:translateY(-2px);}
+.kl{font-size:.72rem;text-transform:uppercase;letter-spacing:.7px;color:var(--t3);font-weight:600;margin-bottom:6px;}
+.kv{font-size:1.5rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--t1);line-height:1.1;}
+.ks{font-size:.78rem;color:var(--t2);margin-top:5px;}
+.pbar{background:var(--bg4);height:6px;border-radius:3px;overflow:hidden;margin-top:8px;}
+.pfill{height:100%;border-radius:3px;transition:width .5s;}
+.pteal{background:linear-gradient(90deg,var(--teal),var(--blue));}
+.pamber{background:var(--amber);}
+.pred{background:var(--red);}
+.ppurp{background:var(--purple);}
+/* ===PILL=== */
+.pill{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;font-size:.72rem;font-weight:600;}
+.pg{background:rgba(0,200,150,.15);color:var(--teal);}
+.pa{background:rgba(245,166,35,.15);color:var(--amber);}
+.pr{background:rgba(255,77,77,.15);color:var(--red);}
+.pb{background:rgba(65,131,255,.15);color:var(--blue);}
+.pp{background:rgba(139,92,246,.15);color:var(--purple);}
+.pm{background:rgba(245,166,35,.12);color:var(--amber);}
+/* ===CARD=== */
+.card{background:var(--glass);border:1px solid var(--bdr);border-radius:14px;padding:20px;margin-bottom:18px;backdrop-filter:blur(10px);}
+.ctitle{font-size:1rem;font-weight:700;display:flex;align-items:center;gap:9px;margin-bottom:16px;}
+.ctitle i{color:var(--teal);}
+/* ===CHART BOX=== */
+.cgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;}
+.cgrid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:18px;}
+@media(max-width:1100px){.cgrid{grid-template-columns:1fr;}.cgrid3{grid-template-columns:1fr 1fr;}}
+@media(max-width:700px){.cgrid3{grid-template-columns:1fr;}}
+.cbox{background:var(--bg3);border:1px solid var(--bdr);border-radius:13px;padding:18px;}
+.cbox-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+.cbox-ttl{font-size:.9rem;font-weight:700;display:flex;align-items:center;gap:7px;color:var(--t1);}
+.cbox-ttl i{color:var(--teal);}
+/* ===TABLE=== */
+.twrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;}
+thead th{background:var(--bg2);padding:11px 12px;text-align:left;font-size:.68rem;color:var(--t3);text-transform:uppercase;letter-spacing:.7px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--bdr);}
+tbody td{padding:12px 12px;border-top:1px solid var(--bdr);font-size:.82rem;vertical-align:middle;}
+tbody tr:hover{background:var(--bg4);}
+.ecell{display:flex;align-items:center;gap:9px;}
+.av{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--blue));display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:.72rem;flex-shrink:0;}
+.av.mehul-av{background:linear-gradient(135deg,var(--amber),var(--red));}
+.en{font-weight:600;font-size:.83rem;}
+.es{font-size:.7rem;color:var(--t3);}
+.mono{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:.8rem;}
+.tc{color:var(--teal);}.bc{color:var(--blue);}.rc{color:var(--red);}.ac{color:var(--amber);}
+/* ===FORM=== */
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:16px;}
+.fg{display:flex;flex-direction:column;gap:5px;}
+.fg label{font-size:.7rem;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;}
+.fg input,.fg select{padding:10px 12px;background:var(--bg2);border:1.5px solid var(--bdr);border-radius:8px;color:var(--t1);font-size:.88rem;font-family:'DM Sans',sans-serif;transition:.2s;}
+.fg input:focus,.fg select:focus{border-color:var(--teal);outline:none;}
+.fg select option{background:var(--bg2);}
+/* ===BTN=== */
+.btn{padding:9px 18px;border-radius:7px;border:none;cursor:pointer;font-weight:600;font-size:.83rem;font-family:'DM Sans',sans-serif;transition:.2s;display:inline-flex;align-items:center;gap:6px;}
+.btn-p{background:linear-gradient(135deg,var(--teal),var(--blue));color:#fff;}
+.btn-s{background:var(--bg4);color:var(--t1);border:1.5px solid var(--bdr);}
+.btn-a{background:rgba(245,166,35,.15);color:var(--amber);border:1.5px solid rgba(245,166,35,.3);}
+.btn:hover{opacity:.85;transform:translateY(-1px);}
+.flex-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.shdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;}
+/* ===SEARCH=== */
+.swrap{position:relative;}
+.swrap i{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--t3);font-size:.8rem;}
+.swrap input{padding:8px 12px 8px 30px;background:var(--bg2);border:1.5px solid var(--bdr);border-radius:7px;color:var(--t1);width:220px;font-size:.85rem;font-family:'DM Sans',sans-serif;}
+.swrap input:focus{border-color:var(--teal);outline:none;}
+/* ===MEHULKAKA SPECIAL=== */
+.mehul-banner{background:linear-gradient(135deg,rgba(245,166,35,.12),rgba(255,77,77,.08));border:1.5px solid rgba(245,166,35,.35);border-radius:14px;padding:20px;margin-bottom:18px;}
+.mehul-banner h3{color:var(--amber);font-size:1.1rem;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:8px;}
+.mehul-banner p{color:var(--t2);font-size:.83rem;}
+/* ===COMPARISON BAR=== */
+.cmp-card{background:var(--bg3);border:1px solid var(--bdr);border-radius:12px;padding:16px;}
+.cmp-card h4{font-size:.75rem;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);font-weight:600;margin-bottom:12px;}
+.cmp-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bdr);}
+.cmp-row:last-child{border:none;}
+.cmp-nm{font-size:.82rem;font-weight:600;min-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cmp-bw{flex:1;background:var(--bg4);height:6px;border-radius:3px;overflow:hidden;}
+.cmp-bf{height:100%;border-radius:3px;transition:width .5s;}
+.cmp-pct{font-family:'JetBrains Mono',monospace;font-size:.78rem;font-weight:700;min-width:42px;text-align:right;}
+.cmp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px;}
+/* ===MODAL=== */
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:2000;align-items:center;justify-content:center;backdrop-filter:blur(8px);}
+.modal.active{display:flex;}
+.mbox{background:var(--bg3);border:1px solid var(--bdr2);border-radius:18px;padding:28px;width:90%;max-width:580px;max-height:90vh;overflow-y:auto;}
+.mhdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
+.mttl{font-size:1.1rem;font-weight:700;}
+.xbtn{width:32px;height:32px;border-radius:50%;background:var(--bg4);border:none;color:var(--t1);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+/* ===EXCEL GUIDE=== */
+.eg{background:rgba(0,200,150,.06);border:1px solid rgba(0,200,150,.2);border-radius:10px;padding:15px;margin-bottom:14px;}
+.eg h4{color:var(--teal);font-size:.85rem;margin-bottom:8px;display:flex;align-items:center;gap:5px;}
+.eg table th{background:rgba(0,200,150,.1);color:var(--teal);padding:7px 9px;font-size:.68rem;}
+.eg table td{padding:6px 9px;border-top:1px solid rgba(0,200,150,.1);color:var(--t2);font-size:.78rem;}
+.eg table td.col{color:var(--teal);font-family:'JetBrains Mono',monospace;font-weight:600;}
+/* ===INFO BOX=== */
+.ibox{background:rgba(65,131,255,.08);border:1px solid rgba(65,131,255,.2);border-radius:10px;padding:14px;margin-bottom:14px;}
+.ibox h4{color:var(--blue);font-size:.85rem;margin-bottom:8px;}
+/* ===SCROLLBAR=== */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:var(--bg2);}
+::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--teal);}
+.hidden{display:none!important;}
+@media(max-width:768px){.wrap{padding:12px;}.hdr{padding:10px 14px;}.kgrid{grid-template-columns:1fr 1fr;}.swrap input{width:160px;}}
+</style>
+</head>
+<body>
+
+<!-- SYNC BADGE -->
+<div id="syncBadge" class="online"><div class="sync-dot"></div><span id="syncText">Connecting...</span></div>
+
+<!-- FIREBASE SETUP -->
+<div id="firebaseSetup">
+  <div class="fb-box">
+    <h2><i class="fas fa-cloud" style="margin-right:8px"></i> Firebase Live Sync Setup</h2>
+    <p>To enable live data sync across all devices, you need a free Firebase project. Follow these steps:</p>
+    
+    <div class="step">
+      <h4>Step 1: Create Firebase Project</h4>
+      <p>Go to <a href="https://console.firebase.google.com" target="_blank" style="color:var(--teal)">console.firebase.google.com</a> → Click "Add project" → Enter any name → Create</p>
+    </div>
+    <div class="step">
+      <h4>Step 2: Create Realtime Database</h4>
+      <p>In your project → Build → Realtime Database → Create Database → Choose region → Start in <code>test mode</code></p>
+    </div>
+    <div class="step">
+      <h4>Step 3: Get Your Config</h4>
+      <p>Go to Project Settings (gear icon) → General → Your apps → Click Web (<code>&lt;/&gt;</code>) → Register app → Copy the config values below</p>
+    </div>
+
+    <div style="margin-top:18px;">
+      <label style="font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">API Key</label>
+      <input class="fb-input" id="fbApiKey" placeholder="AIzaSy...">
+      
+      <label style="font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Auth Domain</label>
+      <input class="fb-input" id="fbAuthDomain" placeholder="your-project.firebaseapp.com">
+      
+      <label style="font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Database URL</label>
+      <input class="fb-input" id="fbDbUrl" placeholder="https://your-project-default-rtdb.firebaseio.com">
+      
+      <label style="font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Project ID</label>
+      <input class="fb-input" id="fbProjectId" placeholder="your-project-id">
+      
+      <label style="font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Storage Bucket</label>
+      <input class="fb-input" id="fbStorageBucket" placeholder="your-project.appspot.com">
+      
+      <label style="font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Messaging Sender ID</label>
+      <input class="fb-input" id="fbSenderId" placeholder="123456789">
+      
+      <label style="font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">App ID</label>
+      <input class="fb-input" id="fbAppId" placeholder="1:123456789:web:abc123">
+    </div>
+
+    <button class="btn-lg" onclick="saveFirebaseConfig()" style="margin-top:20px"><i class="fas fa-cloud-upload-alt"></i> Connect & Start Live Sync</button>
+    <button class="btn btn-s" onclick="skipFirebase()" style="width:100%;margin-top:10px;justify-content:center"><i class="fas fa-wifi-slash"></i> Skip — Use Offline Mode (localStorage only)</button>
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div id="loginOverlay">
+  <div class="lbox">
+    <div class="lbox-icon"><i class="fas fa-bolt"></i></div>
+    <h2>ACB GP TRACKER</h2>
+    <p>Multi-Branch Performance Dashboard v3 — Live Sync</p>
+    <select id="roleSelect" onchange="togglePass()">
+      <option value="employee">Employee Login</option>
+      <option value="manager">Manager Login</option>
+      <option value="admin">Administrator</option>
+    </select>
+    <input type="password" id="passInput" placeholder="Enter Password" style="display:none">
+    <select id="branchSelect">
+      <option value="all">-- Select Branch --</option>
+      <option value="ASTRON CHOWK">Astron Chowk</option>
+      <option value="GONDAL ROAD BRANCH">Gondal Road</option>
+      <option value="SANALA ROAD BRANCH (MORBI)">Morbi (Sanala Road)</option>
+    </select>
+    <button class="btn-lg" onclick="doLogin()"><i class="fas fa-sign-in-alt"></i> Enter Dashboard</button>
+    <div class="remember-wrap">
+      <input type="checkbox" id="rememberMe" checked>
+      <label for="rememberMe">Remember me (stay logged in)</label>
+    </div>
+    <p id="lErr"><i class="fas fa-times-circle"></i> Invalid credentials</p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <div class="hdr">
+    <div class="hdr-logo">
+      <div class="hdr-logo-icon"><i class="fas fa-bolt"></i></div>
+      ACB GP TRACKER <span style="font-size:.65rem;color:var(--teal);margin-left:4px;font-weight:400">LIVE</span>
+    </div>
+    <div class="hdr-right">
+      <div class="thm" onclick="toggleTheme()"></div>
+      <div class="uchip">
+        <i class="fas fa-user-circle" style="color:var(--teal)"></i>
+        <b id="dUser">Admin</b> <span style="color:var(--t3)">|</span>
+        <span class="br" id="dBranch">All Branches</span>
+      </div>
+      <span class="lout" onclick="logout()"><i class="fas fa-power-off"></i> Logout</span>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <!-- BRANCH TABS -->
+    <div class="btabs" id="branchTabsWrap">
+      <div class="btab active" onclick="switchBranch('all')"><i class="fas fa-building"></i>All Branches<span class="c" id="cntAll">0</span></div>
+      <div class="btab" onclick="switchBranch('ASTRON CHOWK')"><i class="fas fa-store"></i>Astron Chowk<span class="c" id="cntAC">0</span></div>
+      <div class="btab" onclick="switchBranch('GONDAL ROAD BRANCH')"><i class="fas fa-store"></i>Gondal Road<span class="c" id="cntGR">0</span></div>
+      <div class="btab" onclick="switchBranch('SANALA ROAD BRANCH (MORBI)')"><i class="fas fa-store"></i>Morbi<span class="c" id="cntMB">0</span></div>
+    </div>
+
+    <!-- SECTION TABS -->
+    <div class="stabs" id="stabs">
+      <div class="stab active" data-sec="dashboard" onclick="switchSec(this,'dashboard')"><i class="fas fa-chart-line"></i> Dashboard</div>
+      <div class="stab" data-sec="comparison" onclick="switchSec(this,'comparison')"><i class="fas fa-balance-scale"></i> Comparison</div>
+      <div class="stab" data-sec="brand" onclick="switchSec(this,'brand')"><i class="fas fa-tags"></i> Brand & Branch</div>
+      <div class="stab" data-sec="admin" id="adminTab" onclick="switchSec(this,'admin')" style="display:none"><i class="fas fa-cog"></i> Manage Targets</div>
+      <div class="stab" data-sec="update" onclick="switchSec(this,'update')"><i class="fas fa-edit"></i> Update Achieved</div>
+      <div class="stab mehul" data-sec="mehul" onclick="switchSec(this,'mehul')"><i class="fas fa-star"></i> MEHULKAKA</div>
+      <div class="stab" data-sec="guide" onclick="switchSec(this,'guide')"><i class="fas fa-file-excel"></i> Excel Guide</div>
+    </div>
+
+    <!-- DATE FILTER -->
+    <div class="dbar">
+      <i class="fas fa-calendar" style="color:var(--teal);font-size:.85rem"></i>
+      <label>From:</label><input type="date" id="dFrom" onchange="refresh()">
+      <label>To:</label><input type="date" id="dTo" onchange="refresh()">
+      <button class="btn btn-s" onclick="clearDates()" style="padding:6px 12px;font-size:.78rem"><i class="fas fa-times"></i> Clear</button>
+      <span id="dLbl" style="font-size:.78rem;color:var(--t2)"></span>
+      <div style="flex:1"></div>
+      <button class="btn btn-s" onclick="document.getElementById('xlImport').click()" style="padding:6px 12px;font-size:.78rem"><i class="fas fa-file-upload"></i> Import Excel</button>
+      <input type="file" id="xlImport" accept=".xlsx,.xls" style="display:none" onchange="importExcel(event)">
+      <button class="btn btn-s" onclick="exportReport()" style="padding:6px 12px;font-size:.78rem"><i class="fas fa-download"></i> Export</button>
+    </div>
+
+    <!-- ===DASHBOARD=== -->
+    <div id="sec-dashboard" class="panel active">
+      <div class="kgrid" id="kpiWrap"></div>
+      <div class="cgrid">
+        <div class="cbox">
+          <div class="cbox-hdr">
+            <div class="cbox-ttl"><i class="fas fa-chart-bar"></i> Target vs Achieved</div>
+            <select id="chartMetric" onchange="renderDashCharts()" style="padding:5px 10px;border-radius:6px;background:var(--bg2);border:1px solid var(--bdr);color:var(--t1);font-size:.78rem;font-family:'DM Sans',sans-serif;">
+              <option value="gp">GP</option><option value="qty">Quantity</option><option value="samsungVal">Samsung ₹</option>
+            </select>
+          </div>
+          <canvas id="barChart" height="110"></canvas>
+        </div>
+        <div class="cbox">
+          <div class="cbox-hdr"><div class="cbox-ttl"><i class="fas fa-chart-pie"></i> Branch GP Share</div></div>
+          <canvas id="pieChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="shdr">
+          <div class="ctitle" style="margin:0"><i class="fas fa-users"></i> Employee Performance</div>
+          <div class="flex-r">
+            <div class="swrap"><i class="fas fa-search"></i><input type="text" id="srch" placeholder="Search..." onkeyup="filterTbl()"></div>
+          </div>
+        </div>
+        <div class="twrap">
+          <table>
+            <thead><tr>
+              <th>Employee</th><th>Branch</th><th>Mgr</th>
+              <th>GP Tgt</th><th>GP Ach</th><th>GP Rem</th><th>GP%</th>
+              <th>Qty Tgt</th><th>Qty Ach</th><th>Qty Rem</th><th>Qty%</th>
+              <th>Samsung Val Tgt</th><th>Samsung Val Ach</th><th>Samsung Rem</th><th>Samsung Qty</th>
+              <th>GP BTD</th><th>Qty BTD</th><th>Per Day GP</th><th>Per Day Qty</th>
+              <th>GP Inc</th><th>Qty Inc</th><th>Total Inc</th><th>Status</th>
+            </tr></thead>
+            <tbody id="tblBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===COMPARISON=== -->
+    <div id="sec-comparison" class="panel">
+      <div class="cgrid">
+        <div class="cbox">
+          <div class="cbox-hdr"><div class="cbox-ttl"><i class="fas fa-code-branch"></i> Branch GP Achievement %</div></div>
+          <canvas id="branchCmpChart" height="120"></canvas>
+        </div>
+        <div class="cbox">
+          <div class="cbox-hdr"><div class="cbox-ttl"><i class="fas fa-user-tie"></i> Manager Team Achievement %</div></div>
+          <canvas id="mgrChart" height="120"></canvas>
+        </div>
+      </div>
+      <div class="cmp-grid" id="cmpWrap"></div>
+    </div>
+
+    <!-- ===BRAND & BRANCH=== -->
+    <div id="sec-brand" class="panel">
+      <div class="cgrid3">
+        <div class="cbox"><div class="cbox-hdr"><div class="cbox-ttl"><i class="fas fa-tags"></i> Brand Sales Value (₹)</div></div><canvas id="brandValChart" height="160"></canvas></div>
+        <div class="cbox"><div class="cbox-hdr"><div class="cbox-ttl"><i class="fas fa-boxes"></i> Brand Qty Sold</div></div><canvas id="brandQtyChart" height="160"></canvas></div>
+        <div class="cbox"><div class="cbox-hdr"><div class="cbox-ttl"><i class="fas fa-building"></i> Branch Revenue</div></div><canvas id="branchRevChart" height="160"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="ctitle"><i class="fas fa-table"></i> Brand × Branch Detail</div>
+        <div class="twrap">
+          <table>
+            <thead><tr><th>Brand</th><th>Branch</th><th>Qty Sold</th><th>Sales Value (₹)</th><th>GP (₹)</th><th>GP %</th></tr></thead>
+            <tbody id="brandTbl"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===ADMIN: MANAGE TARGETS=== -->
+    <div id="sec-admin" class="panel">
+      <div class="card">
+        <div class="shdr">
+          <div class="ctitle" style="margin:0"><i class="fas fa-bullseye"></i> Manage Employee Targets</div>
+          <div class="flex-r">
+            <button class="btn btn-s" onclick="document.getElementById('xlTgtImport').click()"><i class="fas fa-file-upload"></i> Import Targets Excel</button>
+            <input type="file" id="xlTgtImport" accept=".xlsx,.xls" style="display:none" onchange="importTargets(event)">
+            <button class="btn btn-p" onclick="openAddEmp()"><i class="fas fa-plus"></i> Add Employee</button>
+          </div>
+        </div>
+        <!-- Astron Chowk: Manager+Team layout -->
+        <div id="astronMgrSection">
+          <div style="background:rgba(0,200,150,.06);border:1px solid rgba(0,200,150,.2);border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:.83rem;color:var(--teal);">
+            <i class="fas fa-info-circle"></i> <b>Astron Chowk</b> — Manager → Salesperson hierarchy. Select branch filter above to switch.
+          </div>
+        </div>
+        <div class="fgrid">
+          <div class="fg"><label>Branch</label>
+            <select id="tgtBranch" onchange="tgtBranchChange()">
+              <option value="ASTRON CHOWK">Astron Chowk</option>
+              <option value="GONDAL ROAD BRANCH">Gondal Road</option>
+              <option value="SANALA ROAD BRANCH (MORBI)">Morbi (Sanala Road)</option>
+            </select>
+          </div>
+          <div class="fg" id="tgtMgrFG"><label>Manager (Astron Chowk only)</label>
+            <select id="tgtMgr" onchange="filterTgtEmpByMgr()">
+              <option value="">All Managers</option>
+            </select>
+          </div>
+          <div class="fg"><label>Employee</label><select id="tgtEmp" onchange="loadTgt()"><option value="">-- Select --</option></select></div>
+        </div>
+        <div class="fgrid">
+          <div class="fg"><label>GP Target (₹)</label><input type="number" id="tgtGP" placeholder="0"></div>
+          <div class="fg"><label>Qty Target (PCS)</label><input type="number" id="tgtQty" placeholder="0"></div>
+          <div class="fg"><label>Samsung Val Target (₹)</label><input type="number" id="tgtSV" placeholder="0"></div>
+          <div class="fg"><label>Samsung Qty Target (PCS)</label><input type="number" id="tgtSQ" placeholder="0"></div>
+          <div class="fg"><label>Ageing Target (PCS)</label><input type="number" id="tgtAg" placeholder="0"></div>
+          <div class="fg"><label>Working Days in Month</label><input type="number" id="tgtDays" value="26" placeholder="26"></div>
+        </div>
+        <button class="btn btn-p" onclick="saveTgt()" style="width:100%"><i class="fas fa-save"></i> Save Targets</button>
+      </div>
+
+      <!-- Branch-wise target summary -->
+      <div class="card">
+        <div class="ctitle"><i class="fas fa-list"></i> All Targets Summary</div>
+        <div class="twrap">
+          <table>
+            <thead><tr><th>Employee</th><th>Branch</th><th>Manager</th><th>GP Target</th><th>Qty Target</th><th>Samsung Val Tgt</th><th>Samsung Qty Tgt</th><th>Ageing Tgt</th><th>Actions</th></tr></thead>
+            <tbody id="tgtSumTbl"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===UPDATE ACHIEVED=== -->
+    <div id="sec-update" class="panel">
+      <div class="card">
+        <div class="shdr">
+          <div class="ctitle" style="margin:0"><i class="fas fa-edit"></i> Update Achieved Data (Manual)</div>
+          <div class="flex-r">
+            <button class="btn btn-s" onclick="document.getElementById('xlAchImport').click()"><i class="fas fa-file-upload"></i> Import Achieved Excel</button>
+            <input type="file" id="xlAchImport" accept=".xlsx,.xls" style="display:none" onchange="importAchieved(event)">
+          </div>
+        </div>
+        <p style="font-size:.82rem;color:var(--t2);margin-bottom:14px"><i class="fas fa-info-circle" style="color:var(--blue)"></i> Columns available: Manager Name, Sales Person, GP Tgt, Qty Tgt, GP Ach, Qty Ach, GP BTD, Qty BTD, Per Day Req, Per Day Qty Req — on both Astron Chowk and all branches.</p>
+        <div class="fgrid">
+          <div class="fg"><label>Branch</label>
+            <select id="achBranch" onchange="achBranchChange()">
+              <option value="ASTRON CHOWK">Astron Chowk</option>
+              <option value="GONDAL ROAD BRANCH">Gondal Road</option>
+              <option value="SANALA ROAD BRANCH (MORBI)">Morbi (Sanala Road)</option>
+            </select>
+          </div>
+          <div class="fg" id="achMgrFG"><label>Manager</label>
+            <select id="achMgr" onchange="filterAchEmpByMgr()">
+              <option value="">All Managers</option>
+            </select>
+          </div>
+          <div class="fg"><label>Employee</label><select id="achEmp" onchange="loadAch()"><option value="">-- Select --</option></select></div>
+          <div class="fg"><label>Date</label><input type="date" id="achDate"></div>
+        </div>
+        <div class="fgrid">
+          <div class="fg"><label>GP Tgt (₹)</label><input type="number" id="achGPTgt" placeholder="Auto-filled" readonly style="opacity:.6;cursor:not-allowed"></div>
+          <div class="fg"><label>Qty Tgt (PCS)</label><input type="number" id="achQtyTgt" placeholder="Auto-filled" readonly style="opacity:.6;cursor:not-allowed"></div>
+          <div class="fg"><label>GP Achieved (₹)</label><input type="number" id="achGP" placeholder="0"></div>
+          <div class="fg"><label>Qty Achieved (PCS)</label><input type="number" id="achQty" placeholder="0"></div>
+          <div class="fg"><label>GP BTD (Balance to Date)</label><input type="number" id="achGPBTD" placeholder="Auto-calc"></div>
+          <div class="fg"><label>Qty BTD</label><input type="number" id="achQtyBTD" placeholder="Auto-calc"></div>
+          <div class="fg"><label>Per Day GP Req</label><input type="number" id="achPDGP" placeholder="Auto-calc" readonly style="opacity:.6;cursor:not-allowed"></div>
+          <div class="fg"><label>Per Day Qty Req</label><input type="number" id="achPDQty" placeholder="Auto-calc" readonly style="opacity:.6;cursor:not-allowed"></div>
+          <div class="fg"><label>Samsung Val Achieved (₹)</label><input type="number" id="achSV" placeholder="0"></div>
+          <div class="fg"><label>Samsung Qty Achieved (PCS)</label><input type="number" id="achSQ" placeholder="0"></div>
+          <div class="fg"><label>Ageing Stock Sold (PCS)</label><input type="number" id="achAg" placeholder="0"></div>
+        </div>
+        <!-- Live preview row -->
+        <div id="achPreview" style="background:var(--bg4);border-radius:10px;padding:14px;margin-bottom:14px;display:none;">
+          <p style="font-size:.78rem;color:var(--t2);margin-bottom:10px;font-weight:600">LIVE INCENTIVE PREVIEW</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;" id="achPreviewGrid"></div>
+        </div>
+        <button class="btn btn-p" onclick="saveAch()" style="width:100%"><i class="fas fa-save"></i> Save Achieved Data</button>
+      </div>
+
+      <!-- Branch-wise achieved quick view -->
+      <div class="card">
+        <div class="ctitle"><i class="fas fa-table"></i> Current Achieved Overview</div>
+        <div class="twrap">
+          <table>
+            <thead><tr>
+              <th>Employee</th><th>Branch</th><th>Manager</th>
+              <th>GP Tgt</th><th>GP Ach</th><th>GP BTD</th><th>Per Day GP</th>
+              <th>Qty Tgt</th><th>Qty Ach</th><th>Qty BTD</th><th>Per Day Qty</th>
+              <th>Sam Val Tgt</th><th>Sam Val Ach</th><th>Sam BTD</th><th>Sam Qty</th>
+            </tr></thead>
+            <tbody id="achOvwTbl"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===MEHULKAKA=== -->
+    <div id="sec-mehul" class="panel">
+      <div class="mehul-banner">
+        <h3><i class="fas fa-star"></i> MEHULKAKA — Special Dashboard</h3>
+        <p>Dedicated view for MEHULKAKA's sales across all branches. Data auto-populated from uploaded Excel.</p>
+      </div>
+      <div class="kgrid" id="mehulKpi"></div>
+      <div class="cgrid">
+        <div class="cbox">
+          <div class="cbox-hdr"><div class="cbox-ttl"><i class="fas fa-chart-bar"></i> Branch-wise Sales</div></div>
+          <canvas id="mehulBranchChart" height="120"></canvas>
+        </div>
+        <div class="cbox">
+          <div class="cbox-hdr"><div class="cbox-ttl"><i class="fas fa-tags"></i> Brand-wise Sales</div></div>
+          <canvas id="mehulBrandChart" height="120"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ctitle"><i class="fas fa-list"></i> MEHULKAKA Transaction Detail</div>
+        <div class="twrap">
+          <table>
+            <thead><tr><th>Branch</th><th>Brand</th><th>Model</th><th>Date</th><th>Qty</th><th>Sales Value (₹)</th><th>GP (₹)</th><th>IMEI</th></tr></thead>
+            <tbody id="mehulTbl"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===EXCEL GUIDE=== -->
+    <div id="sec-guide" class="panel">
+      <div class="card">
+        <div class="ctitle"><i class="fas fa-file-excel"></i> Excel Upload Format Guide</div>
+        <p style="font-size:.85rem;color:var(--t2);margin-bottom:16px">Prepare your Excel exactly as below. Row 1 = headers. Save as <b style="color:var(--teal)">.xlsx</b></p>
+
+        <div class="eg">
+          <h4><i class="fas fa-database"></i> Sheet 1 — Transaction Data (Sales Report)</h4>
+          <p style="font-size:.78rem;color:var(--t2);margin-bottom:8px">This is your raw sales data from your billing system — one row per transaction.</p>
+          <div style="overflow-x:auto"><table style="width:100%">
+            <thead><tr><th>Col</th><th>Header</th><th>Example</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td class="col">A</td><td>Salesperson</td><td>1 - VINIT MANDAVIYA</td><td>Number prefix is fine (e.g. 1 - NAME)</td></tr>
+              <tr><td class="col">B</td><td>Branch</td><td>ASTRON CHOWK</td><td>ASTRON CHOWK / GONDAL ROAD BRANCH / SANALA ROAD BRANCH (MORBI)</td></tr>
+              <tr><td class="col">C</td><td>Brand</td><td>SAMSUNG</td><td>Brand name in CAPS</td></tr>
+              <tr><td class="col">D</td><td>Doc. No.</td><td>MT/ACB/14</td><td>Invoice/doc number</td></tr>
+              <tr><td class="col">E</td><td>Doc. Date</td><td>01/04/2026</td><td>DD/MM/YYYY or YYYY-MM-DD</td></tr>
+              <tr><td class="col">F</td><td>Item/Model</td><td>GALAXY A55 5G (8/256GB)</td><td>Full model name</td></tr>
+              <tr><td class="col">G</td><td>Sales Qty.</td><td>1</td><td>Quantity sold</td></tr>
+              <tr><td class="col">H</td><td>Sales Value</td><td>35000</td><td>Selling price in ₹</td></tr>
+              <tr><td class="col">I</td><td>Sales Return Qty.</td><td>0</td><td>0 if no return</td></tr>
+              <tr><td class="col">J</td><td>Sales Return Value</td><td>0</td><td>0 if no return</td></tr>
+              <tr><td class="col">K</td><td>Manager Landing</td><td>33500</td><td>Landing/cost price</td></tr>
+              <tr><td class="col">L</td><td>IMEI NO</td><td>352822575322368</td><td>Device IMEI</td></tr>
+              <tr><td class="col">M</td><td>Profit Amt.</td><td>1500</td><td>GP = Sales Value - Landing</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+
+        <div class="eg" style="background:rgba(65,131,255,.06);border-color:rgba(65,131,255,.2)">
+          <h4 style="color:var(--blue)"><i class="fas fa-bullseye"></i> Sheet 2 (Optional) — Target Data</h4>
+          <p style="font-size:.78rem;color:var(--t2);margin-bottom:8px">Upload targets separately or set manually in Manage Targets section.</p>
+          <div style="overflow-x:auto"><table style="width:100%">
+            <thead><tr><th>Col</th><th>Header</th><th>Example</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td class="col">A</td><td>Employee Name</td><td>VINIT MANDAVIYA</td><td>Must match system name (without number prefix)</td></tr>
+              <tr><td class="col">B</td><td>Branch</td><td>ASTRON CHOWK</td><td>Exact branch name</td></tr>
+              <tr><td class="col">C</td><td>Manager</td><td>KADIRBHAI</td><td>Manager name</td></tr>
+              <tr><td class="col">D</td><td>GP Target</td><td>65217</td><td>Monthly GP target in ₹</td></tr>
+              <tr><td class="col">E</td><td>Qty Target</td><td>115</td><td>Monthly qty target in PCS</td></tr>
+              <tr><td class="col">F</td><td>Samsung Val Target</td><td>925000</td><td>Monthly Samsung value target in ₹</td></tr>
+              <tr><td class="col">G</td><td>Samsung Qty Target</td><td>20</td><td>Monthly Samsung qty target</td></tr>
+              <tr><td class="col">H</td><td>Ageing Target</td><td>14</td><td>Ageing stock sales target</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+
+        <div class="ibox">
+          <h4><i class="fas fa-calculator"></i> Incentive Rules Applied (Auto-Calculated)</h4>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:.82rem;color:var(--t2)">
+            <div>
+              <b style="color:var(--t1)">GP & Qty Incentive Slabs:</b><br><br>
+              ≥ 95% → <b style="color:var(--teal)">5% on GP + 5% on Qty</b><br>
+              ≥ 90% &lt; 95% → <b style="color:var(--blue)">4% on GP + 4% on Qty</b><br>
+              ≥ 80% &lt; 90% → <b style="color:var(--amber)">3% on GP + 3% on Qty</b><br>
+              &lt; 80% → <b style="color:var(--red)">No Incentive</b>
+            </div>
+            <div>
+              <b style="color:var(--t1)">Mandatory Conditions:</b><br><br>
+              • Min GP achievement: <b>80%+</b><br>
+              • Full GP incentive: needs <b>100% Samsung Val target</b><br>
+              • Full Qty incentive: needs <b>≥15% Ageing</b> of qty target<br>
+              • BTD = Balance To Date = Target − Achieved<br>
+              • Per Day Req = BTD ÷ Remaining working days
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /wrap -->
+</div><!-- /app -->
+
+<!-- ADD EMP MODAL -->
+<div id="addEmpModal" class="modal">
+  <div class="mbox">
+    <div class="mhdr">
+      <div class="mttl"><i class="fas fa-user-plus" style="color:var(--teal)"></i> Add New Employee</div>
+      <button class="xbtn" onclick="closeModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="fgrid" style="grid-template-columns:1fr;">
+      <div class="fg"><label>Full Name</label><input type="text" id="newName" placeholder="Employee full name"></div>
+      <div class="fg"><label>Branch</label>
+        <select id="newBranch" onchange="updateNewMgrList()">
+          <option value="ASTRON CHOWK">Astron Chowk</option>
+          <option value="GONDAL ROAD BRANCH">Gondal Road</option>
+          <option value="SANALA ROAD BRANCH (MORBI)">Morbi (Sanala Road)</option>
+        </select>
+      </div>
+      <div class="fg"><label>Manager</label><select id="newMgr"></select></div>
+    </div>
+    <button class="btn btn-p" onclick="addEmp()" style="width:100%;margin-top:12px"><i class="fas fa-save"></i> Add Employee</button>
+  </div>
+</div>
+
+<script>
+// ======================================================
+// FIREBASE LIVE SYNC ENGINE
+// ======================================================
+let db = null;
+let firebaseConnected = false;
+let syncListenersAttached = false;
+let suppressFirebaseUpdate = false; // prevent infinite loops
+
+function updateSyncBadge(status, text) {
+  const badge = document.getElementById('syncBadge');
+  const span = document.getElementById('syncText');
+  badge.className = status;
+  span.textContent = text;
+}
+
+function getStoredFirebaseConfig() {
+  const cfg = localStorage.getItem('acb3_firebase_config');
+  return cfg ? JSON.parse(cfg) : null;
+}
+
+function saveFirebaseConfig() {
+  const config = {
+    apiKey: document.getElementById('fbApiKey').value.trim(),
+    authDomain: document.getElementById('fbAuthDomain').value.trim(),
+    databaseURL: document.getElementById('fbDbUrl').value.trim(),
+    projectId: document.getElementById('fbProjectId').value.trim(),
+    storageBucket: document.getElementById('fbStorageBucket').value.trim(),
+    messagingSenderId: document.getElementById('fbSenderId').value.trim(),
+    appId: document.getElementById('fbAppId').value.trim()
+  };
+  
+  if (!config.apiKey || !config.databaseURL || !config.projectId) {
+    alert('Please fill at least API Key, Database URL, and Project ID');
+    return;
+  }
+  
+  localStorage.setItem('acb3_firebase_config', JSON.stringify(config));
+  document.getElementById('firebaseSetup').classList.remove('active');
+  initFirebase(config);
+}
+
+function skipFirebase() {
+  localStorage.setItem('acb3_firebase_skip', 'true');
+  document.getElementById('firebaseSetup').classList.remove('active');
+  updateSyncBadge('offline', 'Offline Mode');
+  checkSavedLogin();
+}
+
+function initFirebase(config) {
+  try {
+    updateSyncBadge('syncing', 'Connecting...');
+    
+    if (!firebase.apps.length) {
+      firebase.initializeApp(config);
+    }
+    db = firebase.database();
+    firebaseConnected = true;
+    
+    // Test connection
+    const connRef = db.ref('.info/connected');
+    connRef.on('value', (snap) => {
+      if (snap.val() === true) {
+        updateSyncBadge('online', 'Live Sync ✓');
+      } else {
+        updateSyncBadge('offline', 'Reconnecting...');
+      }
+    });
+    
+    // Check if Firebase has data, if not push current localStorage data
+    db.ref('acb3/employees').once('value').then((snap) => {
+      if (!snap.exists()) {
+        // First time — push existing data to Firebase
+        pushAllToFirebase();
+      } else {
+        // Pull from Firebase
+        pullFromFirebase();
+      }
+      attachFirebaseListeners();
+      checkSavedLogin();
+    });
+    
+  } catch (err) {
+    console.error('Firebase init error:', err);
+    updateSyncBadge('offline', 'Connection Error');
+    firebaseConnected = false;
+    checkSavedLogin();
+  }
+}
+
+function pushAllToFirebase() {
+  if (!db || !firebaseConnected) return;
+  suppressFirebaseUpdate = true;
+  updateSyncBadge('syncing', 'Uploading data...');
+  
+  const empObj = {};
+  employees.forEach((e, i) => {
+    const key = sanitizeKey(e.id);
+    empObj[key] = e;
+  });
+  
+  Promise.all([
+    db.ref('acb3/employees').set(empObj),
+    db.ref('acb3/txData').set(txData),
+    db.ref('acb3/brandBranchData').set(brandBranchData)
+  ]).then(() => {
+    updateSyncBadge('online', 'Live Sync ✓');
+    suppressFirebaseUpdate = false;
+  }).catch(err => {
+    console.error('Push error:', err);
+    suppressFirebaseUpdate = false;
+  });
+}
+
+function pullFromFirebase() {
+  if (!db) return;
+  updateSyncBadge('syncing', 'Syncing data...');
+  
+  Promise.all([
+    db.ref('acb3/employees').once('value'),
+    db.ref('acb3/txData').once('value'),
+    db.ref('acb3/brandBranchData').once('value')
+  ]).then(([empSnap, txSnap, brandSnap]) => {
+    if (empSnap.exists()) {
+      const empObj = empSnap.val();
+      employees = Object.values(empObj);
+    }
+    if (txSnap.exists()) {
+      txData = txSnap.val();
+      if (!Array.isArray(txData)) txData = Object.values(txData);
+    }
+    if (brandSnap.exists()) {
+      brandBranchData = brandSnap.val();
+      if (!Array.isArray(brandBranchData)) brandBranchData = Object.values(brandBranchData);
+    }
+    
+    // Also save locally as fallback
+    localStorage.setItem('acb3_emp', JSON.stringify(employees));
+    localStorage.setItem('acb3_tx', JSON.stringify(txData));
+    localStorage.setItem('acb3_brand', JSON.stringify(brandBranchData));
+    
+    updateSyncBadge('online', 'Live Sync ✓');
+    
+    // Refresh display if already logged in
+    if (role) {
+      updateCounts();
+      fillAllSelects();
+      refresh();
+    }
+  });
+}
+
+function attachFirebaseListeners() {
+  if (syncListenersAttached || !db) return;
+  syncListenersAttached = true;
+  
+  // Listen for changes in real-time
+  db.ref('acb3/employees').on('value', (snap) => {
+    if (suppressFirebaseUpdate) return;
+    if (snap.exists()) {
+      const empObj = snap.val();
+      employees = Object.values(empObj);
+      localStorage.setItem('acb3_emp', JSON.stringify(employees));
+      
+      if (role) {
+        updateCounts();
+        refresh();
+      }
+      
+      updateSyncBadge('online', 'Live Sync ✓ (Updated)');
+      setTimeout(() => updateSyncBadge('online', 'Live Sync ✓'), 2000);
+    }
+  });
+  
+  db.ref('acb3/txData').on('value', (snap) => {
+    if (suppressFirebaseUpdate) return;
+    if (snap.exists()) {
+      txData = snap.val();
+      if (!Array.isArray(txData)) txData = Object.values(txData);
+      localStorage.setItem('acb3_tx', JSON.stringify(txData));
+      if (role && curSec === 'mehul') refresh();
+    }
+  });
+  
+  db.ref('acb3/brandBranchData').on('value', (snap) => {
+    if (suppressFirebaseUpdate) return;
+    if (snap.exists()) {
+      brandBranchData = snap.val();
+      if (!Array.isArray(brandBranchData)) brandBranchData = Object.values(brandBranchData);
+      localStorage.setItem('acb3_brand', JSON.stringify(brandBranchData));
+      if (role && curSec === 'brand') refresh();
+    }
+  });
+}
+
+function sanitizeKey(key) {
+  // Firebase keys can't contain . $ # [ ] /
+  return String(key).replace(/[.#$\[\]\/]/g, '_');
+}
+
+function syncToFirebase() {
+  if (!db || !firebaseConnected) return;
+  suppressFirebaseUpdate = true;
+  updateSyncBadge('syncing', 'Saving...');
+  
+  const empObj = {};
+  employees.forEach(e => {
+    empObj[sanitizeKey(e.id)] = e;
+  });
+  
+  Promise.all([
+    db.ref('acb3/employees').set(empObj),
+    db.ref('acb3/txData').set(txData),
+    db.ref('acb3/brandBranchData').set(brandBranchData)
+  ]).then(() => {
+    updateSyncBadge('online', 'Saved ✓');
+    setTimeout(() => updateSyncBadge('online', 'Live Sync ✓'), 1500);
+    suppressFirebaseUpdate = false;
+  }).catch(err => {
+    console.error('Sync error:', err);
+    updateSyncBadge('offline', 'Sync Error');
+    suppressFirebaseUpdate = false;
+  });
+}
+
+// ======================================================
+// MANAGERS
+// ======================================================
+const MGRS = {
+  'ASTRON CHOWK': ['ANVARBHAI','DEEPBHAI','MAYANKBHAI','JANAKBHAI','SHIVANGBHAI','KADIRBHAI'],
+  'GONDAL ROAD BRANCH': ['NIZARBHAI','DHAVALBHAI'],
+  'SANALA ROAD BRANCH (MORBI)': ['TAHSINBHAI','RAJDEEPBHAI','YASHBHAI']
+};
+const BRANCH_LABELS = {
+  'ASTRON CHOWK':'Astron Chowk',
+  'GONDAL ROAD BRANCH':'Gondal Road',
+  'SANALA ROAD BRANCH (MORBI)':'Morbi'
+};
+
+// ======================================================
+// DATA — Pre-loaded from Excel
+// ======================================================
+const DAYS_REMAINING = 18; // days remaining in month (configurable)
+const MONTH_DAYS = 26;
+
+let employees = JSON.parse(localStorage.getItem('acb3_emp')) || [
+  // ASTRON CHOWK
+  {id:'3 - Tanmay Lathiya',name:'Tanmay Lathiya',branch:'ASTRON CHOWK',manager:'ANVARBHAI',gpTarget:65217,qtyTarget:115,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:33013,qtyAch:42,samsungValAch:1184530,samsungQtyAch:31,ageingAch:0,salesVal:1379827},
+  {id:'6 - NIGAM',name:'NIGAM',branch:'ASTRON CHOWK',manager:'ANVARBHAI',gpTarget:50725,qtyTarget:110,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:6565,qtyAch:41,samsungValAch:22000,samsungQtyAch:1,ageingAch:0,salesVal:1321486},
+  {id:'27 - Hardik Parmar',name:'Hardik Parmar',branch:'ASTRON CHOWK',manager:'DEEPBHAI',gpTarget:57971,qtyTarget:90,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:17737,qtyAch:34,samsungValAch:78800,samsungQtyAch:5,ageingAch:0,salesVal:952056},
+  {id:'26 - TINABEN',name:'TINABEN',branch:'ASTRON CHOWK',manager:'DEEPBHAI',gpTarget:55072,qtyTarget:95,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:15414,qtyAch:26,samsungValAch:193900,samsungQtyAch:4,ageingAch:0,salesVal:931069},
+  {id:'2 - DIPAK MAKWANA',name:'DIPAK MAKWANA',branch:'ASTRON CHOWK',manager:'DEEPBHAI',gpTarget:43478,qtyTarget:85,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:13,gpAch:6434,qtyAch:20,samsungValAch:25500,samsungQtyAch:2,ageingAch:0,salesVal:407514},
+  {id:'14 - NAKIB',name:'NAKIB',branch:'ASTRON CHOWK',manager:'MAYANKBHAI',gpTarget:43480,qtyTarget:85,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:4692,qtyAch:18,samsungValAch:37199,samsungQtyAch:2,ageingAch:0,salesVal:469599},
+  {id:'7 - MUSTUFA MAKVANA',name:'MUSTUFA MAKVANA',branch:'ASTRON CHOWK',manager:'MAYANKBHAI',gpTarget:50725,qtyTarget:110,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:10629,qtyAch:30,samsungValAch:22500,samsungQtyAch:1,ageingAch:0,salesVal:731806},
+  {id:'15 - NIKUNJ JOSHI',name:'NIKUNJ JOSHI',branch:'ASTRON CHOWK',manager:'JANAKBHAI',gpTarget:65217,qtyTarget:110,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:16581,qtyAch:36,samsungValAch:41096,samsungQtyAch:3,ageingAch:0,salesVal:797236},
+  {id:'4 - MOIN SHAHMADAR',name:'MOIN SHAHMADAR',branch:'ASTRON CHOWK',manager:'JANAKBHAI',gpTarget:43478,qtyTarget:85,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:13,gpAch:4856,qtyAch:44,samsungValAch:0,samsungQtyAch:0,ageingAch:0,salesVal:1029646},
+  {id:'1 - VINIT MANDAVIYA',name:'VINIT MANDAVIYA',branch:'ASTRON CHOWK',manager:'KADIRBHAI',gpTarget:65217,qtyTarget:115,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:27827,qtyAch:42,samsungValAch:1385100,samsungQtyAch:33,ageingAch:0,salesVal:1669597},
+  {id:'32 - NIDHI MAKWANA',name:'NIDHI MAKWANA',branch:'ASTRON CHOWK',manager:'KADIRBHAI',gpTarget:50725,qtyTarget:110,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:12554,qtyAch:31,samsungValAch:39498,samsungQtyAch:1,ageingAch:0,salesVal:962788},
+  {id:'16 - UMANG',name:'UMANG',branch:'ASTRON CHOWK',manager:'SHIVANGBHAI',gpTarget:65217,qtyTarget:130,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:14,gpAch:35528,qtyAch:53,samsungValAch:182469,samsungQtyAch:9,ageingAch:0,salesVal:1443922},
+  {id:'34 - AVESH',name:'AVESH',branch:'ASTRON CHOWK',manager:'SHIVANGBHAI',gpTarget:43478,qtyTarget:105,samsungValTarget:925000,samsungQtyTarget:0,ageingTarget:13,gpAch:3603,qtyAch:37,samsungValAch:0,samsungQtyAch:0,ageingAch:0,salesVal:1075988},
+  // GONDAL ROAD
+  {id:'1 - CHIRAG PATHAK',name:'CHIRAG PATHAK',branch:'GONDAL ROAD BRANCH',manager:'NIZARBHAI',gpTarget:36912,qtyTarget:80,samsungValTarget:720000,samsungQtyTarget:0,ageingTarget:0,gpAch:6687,qtyAch:22,samsungValAch:0,samsungQtyAch:0,ageingAch:0,salesVal:445796},
+  {id:'13 - Hemang',name:'Hemang',branch:'GONDAL ROAD BRANCH',manager:'NIZARBHAI',gpTarget:98560,qtyTarget:135,samsungValTarget:720000,samsungQtyTarget:0,ageingTarget:0,gpAch:29182,qtyAch:65,samsungValAch:2008411,samsungQtyAch:4,ageingAch:0,salesVal:2008411},
+  {id:'2 - BHARGAV',name:'BHARGAV',branch:'GONDAL ROAD BRANCH',manager:'DHAVALBHAI',gpTarget:43120,qtyTarget:105,samsungValTarget:720000,samsungQtyTarget:0,ageingTarget:0,gpAch:7647,qtyAch:52,samsungValAch:1067572,samsungQtyAch:14,ageingAch:0,salesVal:1067572},
+  {id:'30-DHRUV ODEDRA',name:'DHRUV ODEDRA',branch:'GONDAL ROAD BRANCH',manager:'DHAVALBHAI',gpTarget:34496,qtyTarget:80,samsungValTarget:720000,samsungQtyTarget:0,ageingTarget:0,gpAch:8793,qtyAch:24,samsungValAch:382341,samsungQtyAch:1,ageingAch:0,salesVal:382341},
+  {id:'9 - SAHID',name:'SAHID',branch:'GONDAL ROAD BRANCH',manager:'NIZARBHAI',gpTarget:36912,qtyTarget:80,samsungValTarget:720000,samsungQtyTarget:0,ageingTarget:0,gpAch:1399,qtyAch:15,samsungValAch:0,samsungQtyAch:0,ageingAch:0,salesVal:276448},
+  // MORBI
+  {id:'2020 - FAIZAL',name:'FAIZAL',branch:'SANALA ROAD BRANCH (MORBI)',manager:'TAHSINBHAI',gpTarget:75000,qtyTarget:90,samsungValTarget:0,samsungQtyTarget:0,ageingTarget:14,gpAch:20510,qtyAch:18,samsungValAch:16298,samsungQtyAch:1,ageingAch:0,salesVal:476643},
+  {id:'2005-VISHALBHAI',name:'VISHALBHAI',branch:'SANALA ROAD BRANCH (MORBI)',manager:'RAJDEEPBHAI',gpTarget:105000,qtyTarget:110,samsungValTarget:0,samsungQtyTarget:0,ageingTarget:17,gpAch:28480,qtyAch:28,samsungValAch:0,samsungQtyAch:0,ageingAch:0,salesVal:623213},
+  {id:'2025 - Jayesh katariya',name:'Jayesh Katariya',branch:'SANALA ROAD BRANCH (MORBI)',manager:'YASHBHAI',gpTarget:62000,qtyTarget:85,samsungValTarget:0,samsungQtyTarget:0,ageingTarget:13,gpAch:18887,qtyAch:20,samsungValAch:18300,samsungQtyAch:1,ageingAch:0,salesVal:565246},
+  {id:'2024-HITARTH GOSAI',name:'HITARTH GOSAI',branch:'SANALA ROAD BRANCH (MORBI)',manager:'TAHSINBHAI',gpTarget:80000,qtyTarget:95,samsungValTarget:0,samsungQtyTarget:0,ageingTarget:14,gpAch:31620,qtyAch:24,samsungValAch:12499,samsungQtyAch:1,ageingAch:0,salesVal:559043},
+  {id:'2008-SAHILBHAI',name:'SAHILBHAI',branch:'SANALA ROAD BRANCH (MORBI)',manager:'RAJDEEPBHAI',gpTarget:75000,qtyTarget:95,samsungValTarget:0,samsungQtyTarget:0,ageingTarget:14,gpAch:17025,qtyAch:20,samsungValAch:72199,samsungQtyAch:3,ageingAch:0,salesVal:579816},
+  {id:'2026 - ATIK',name:'ATIK',branch:'SANALA ROAD BRANCH (MORBI)',manager:'YASHBHAI',gpTarget:50000,qtyTarget:85,samsungValTarget:0,samsungQtyTarget:0,ageingTarget:13,gpAch:9506,qtyAch:18,samsungValAch:512700,samsungQtyAch:14,ageingAch:0,salesVal:615198},
+  {id:'2009 - SAHIL M.',name:'SAHIL M.',branch:'SANALA ROAD BRANCH (MORBI)',manager:'TAHSINBHAI',gpTarget:60000,qtyTarget:85,samsungValTarget:0,samsungQtyTarget:0,ageingTarget:13,gpAch:19795,qtyAch:16,samsungValAch:0,samsungQtyAch:0,ageingAch:0,salesVal:411108}
+];
+
+// Raw transaction data for MEHULKAKA and brand analysis
+let txData = JSON.parse(localStorage.getItem('acb3_tx')) || [];
+let brandBranchData = JSON.parse(localStorage.getItem('acb3_brand')) || [];
+
+// Pre-load from embedded Excel data
+function seedFromExcel() {
+  // Brand×Branch data from GP_REPORT.xlsx Sheet1 (embedded)
+  brandBranchData = [
+    {brand:'APPLE',branch:'ASTRON CHOWK',val:1276900,qty:14,gp:27213},
+    {brand:'APPLE',branch:'GONDAL ROAD BRANCH',val:546700,qty:5,gp:14763},
+    {brand:'INFINIX',branch:'ASTRON CHOWK',val:53899,qty:4,gp:-572},
+    {brand:'INFINIX',branch:'GONDAL ROAD BRANCH',val:13000,qty:1,gp:-379},
+    {brand:'ITEL',branch:'ASTRON CHOWK',val:8350,qty:6,gp:1757},
+    {brand:'ITEL',branch:'GONDAL ROAD BRANCH',val:17300,qty:3,gp:503},
+    {brand:'ITEL',branch:'SANALA ROAD BRANCH (MORBI)',val:6398,qty:4,gp:2182},
+    {brand:'MOTOROLA',branch:'ASTRON CHOWK',val:1784940,qty:93,gp:30401},
+    {brand:'MOTOROLA',branch:'GONDAL ROAD BRANCH',val:815092,qty:48,gp:-1828},
+    {brand:'MOTOROLA',branch:'SANALA ROAD BRANCH (MORBI)',val:271294,qty:12,gp:6736},
+    {brand:'NOKIA',branch:'ASTRON CHOWK',val:14900,qty:7,gp:1654},
+    {brand:'NOKIA',branch:'GONDAL ROAD BRANCH',val:14349,qty:9,gp:1022},
+    {brand:'NOKIA',branch:'SANALA ROAD BRANCH (MORBI)',val:4299,qty:2,gp:329},
+    {brand:'NOTHING',branch:'ASTRON CHOWK',val:133500,qty:3,gp:2130},
+    {brand:'NOTHING',branch:'GONDAL ROAD BRANCH',val:62999,qty:2,gp:2271},
+    {brand:'NOTHING',branch:'SANALA ROAD BRANCH (MORBI)',val:84100,qty:2,gp:2366},
+    {brand:'ONE PLUS',branch:'ASTRON CHOWK',val:823289,qty:22,gp:14321},
+    {brand:'ONE PLUS',branch:'GONDAL ROAD BRANCH',val:67199,qty:2,gp:941},
+    {brand:'ONE PLUS',branch:'SANALA ROAD BRANCH (MORBI)',val:203999,qty:4,gp:3697},
+    {brand:'OPPO',branch:'ASTRON CHOWK',val:972334,qty:36,gp:12149},
+    {brand:'OPPO',branch:'GONDAL ROAD BRANCH',val:267449,qty:12,gp:397},
+    {brand:'OPPO',branch:'SANALA ROAD BRANCH (MORBI)',val:667751,qty:25,gp:29677},
+    {brand:'POCO',branch:'GONDAL ROAD BRANCH',val:76699,qty:7,gp:1050},
+    {brand:'REALME',branch:'ASTRON CHOWK',val:2401255,qty:89,gp:-11624},
+    {brand:'REALME',branch:'GONDAL ROAD BRANCH',val:414491,qty:19,gp:9981},
+    {brand:'REALME',branch:'SANALA ROAD BRANCH (MORBI)',val:895130,qty:37,gp:48376},
+    {brand:'SAMSUNG',branch:'ASTRON CHOWK',val:3380592,qty:97,gp:63666},
+    {brand:'SAMSUNG',branch:'GONDAL ROAD BRANCH',val:790073,qty:27,gp:117},
+    {brand:'SAMSUNG',branch:'SANALA ROAD BRANCH (MORBI)',val:631996,qty:20,gp:9180},
+    {brand:'TECNO',branch:'ASTRON CHOWK',val:90820,qty:9,gp:-1903},
+    {brand:'TECNO',branch:'GONDAL ROAD BRANCH',val:29999,qty:2,gp:3267},
+    {brand:'TECNO',branch:'SANALA ROAD BRANCH (MORBI)',val:129407,qty:6,gp:9720},
+    {brand:'VIVO',branch:'ASTRON CHOWK',val:3091405,qty:95,gp:20201},
+    {brand:'VIVO',branch:'GONDAL ROAD BRANCH',val:1440718,qty:55,gp:10743},
+    {brand:'VIVO',branch:'SANALA ROAD BRANCH (MORBI)',val:915892,qty:29,gp:30504},
+    {brand:'XIAOMI',branch:'ASTRON CHOWK',val:394660,qty:20,gp:2464},
+    {brand:'XIAOMI',branch:'GONDAL ROAD BRANCH',val:279200,qty:17,gp:2180},
+    {brand:'XIAOMI',branch:'SANALA ROAD BRANCH (MORBI)',val:85000,qty:6,gp:2162}
+  ];
+  // MEHULKAKA data — embedded from Sheet1
+  txData = [
+    {sp:'MEHULKAKA',branch:'ASTRON CHOWK',brand:'SAMSUNG',model:'MEHULKAKA SAMSUNG SALES',date:'2026-04',qty:13,val:436000,gp:-10483,imei:''},
+    {sp:'MEHULKAKA',branch:'ASTRON CHOWK',brand:'OTHER',model:'MEHULKAKA OTHER SALES',date:'2026-04',qty:28,val:818310,gp:-23092,imei:''},
+    {sp:'MEHULKAKA',branch:'GONDAL ROAD BRANCH',brand:'SAMSUNG',model:'MEHULKAKA SAMSUNG SALES',date:'2026-04',qty:13,val:436000,gp:-8680,imei:''},
+    {sp:'MEHULKAKA',branch:'GONDAL ROAD BRANCH',brand:'OTHER',model:'MEHULKAKA OTHER SALES',date:'2026-04',qty:18,val:218700,gp:0,imei:''},
+    {sp:'MEHULKAKA',branch:'SANALA ROAD BRANCH (MORBI)',brand:'OTHER',model:'MEHULKAKA MORBI SALES',date:'2026-04',qty:3,val:64999,gp:-894,imei:''}
+  ];
+  save();
+}
+
+if (!localStorage.getItem('acb3_brand')) seedFromExcel();
+
+// ======================================================
+// INCENTIVE CALC
+// ======================================================
+function calcInc(e) {
+  const gpP = e.gpTarget > 0 ? (e.gpAch / e.gpTarget) * 100 : 0;
+  const qP = e.qtyTarget > 0 ? (e.qtyAch / e.qtyTarget) * 100 : 0;
+  const agP = e.qtyTarget > 0 ? (e.ageingAch / e.qtyTarget) * 100 : 100;
+  const svP = e.samsungValTarget > 0 ? (e.samsungValAch / e.samsungValTarget) * 100 : 100;
+  const agOk = agP >= 15 || e.ageingTarget === 0;
+  const svFull = svP >= 100 || e.samsungValTarget === 0;
+  let gpR = 0, qR = 0, slab = 'None';
+  if (gpP >= 95) { gpR = 0.05; qR = agOk ? 0.05 : 0.03; slab = '5%'; }
+  else if (gpP >= 90) { gpR = 0.04; qR = agOk ? 0.04 : 0.03; slab = '4%'; }
+  else if (gpP >= 80) { gpR = 0.03; qR = agOk ? 0.03 : 0.02; slab = '3%'; }
+  if (!svFull && e.samsungValTarget > 0 && gpP >= 80) gpR = gpR; // Still paid per slab
+  const gpInc = Math.round(e.gpAch * gpR);
+  const qInc = Math.round(e.qtyAch * qR);
+  const gpBTD = Math.max(e.gpTarget - e.gpAch, 0);
+  const qBTD = Math.max(e.qtyTarget - e.qtyAch, 0);
+  const svBTD = Math.max(e.samsungValTarget - e.samsungValAch, 0);
+  const pdGP = DAYS_REMAINING > 0 ? Math.round(gpBTD / DAYS_REMAINING) : 0;
+  const pdQty = DAYS_REMAINING > 0 ? parseFloat((qBTD / DAYS_REMAINING).toFixed(2)) : 0;
+  return {gpP,qP,agP,svP,agOk,svFull,gpR,qR,gpInc,qInc,total:gpInc+qInc,slab,gpBTD,qBTD,svBTD,pdGP,pdQty};
+}
+
+// ======================================================
+// STATE
+// ======================================================
+let role='', curBranch='all', curSec='dashboard', charts={};
+
+// ======================================================
+// PERSISTENT LOGIN (Remember Me)
+// ======================================================
+function saveLoginSession(r, b) {
+  const session = { role: r, branch: b, timestamp: Date.now() };
+  localStorage.setItem('acb3_session', JSON.stringify(session));
+}
+
+function clearLoginSession() {
+  localStorage.removeItem('acb3_session');
+}
+
+function checkSavedLogin() {
+  const saved = localStorage.getItem('acb3_session');
+  if (saved) {
+    try {
+      const session = JSON.parse(saved);
+      // Session valid for 30 days
+      if (Date.now() - session.timestamp < 30 * 24 * 60 * 60 * 1000) {
+        role = session.role;
+        curBranch = (session.role === 'admin') ? 'all' : session.branch;
+        
+        document.getElementById('loginOverlay').classList.add('hidden');
+        document.getElementById('app').classList.remove('hidden');
+        document.getElementById('dUser').textContent = role.toUpperCase();
+        document.getElementById('dBranch').textContent = curBranch === 'all' ? 'All Branches' : (BRANCH_LABELS[curBranch] || curBranch);
+        
+        if (role === 'admin') {
+          document.getElementById('adminTab').style.display = 'flex';
+          document.getElementById('branchTabsWrap').style.display = 'flex';
+        } else {
+          document.getElementById('branchTabsWrap').style.display = 'none';
+        }
+        
+        init();
+        return;
+      }
+    } catch(e) {}
+  }
+  // Show login
+  document.getElementById('loginOverlay').classList.remove('hidden');
+}
+
+// ======================================================
+// AUTH
+// ======================================================
+function togglePass(){
+  const r=document.getElementById('roleSelect').value;
+  document.getElementById('passInput').style.display=(r==='admin'||r==='manager')?'block':'none';
+}
+function doLogin(){
+  const r=document.getElementById('roleSelect').value;
+  const p=document.getElementById('passInput').value;
+  const b=document.getElementById('branchSelect').value;
+  document.getElementById('lErr').style.display='none';
+  if(r==='admin'&&p!=='admin123'){document.getElementById('lErr').style.display='block';return;}
+  if(r==='manager'&&p!=='manager123'){document.getElementById('lErr').style.display='block';return;}
+  role=r; curBranch=(r==='admin')?'all':b;
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('dUser').textContent=r.toUpperCase();
+  document.getElementById('dBranch').textContent=curBranch==='all'?'All Branches':(BRANCH_LABELS[curBranch]||curBranch);
+  if(r==='admin'){document.getElementById('adminTab').style.display='flex';document.getElementById('branchTabsWrap').style.display='flex';}
+  else{document.getElementById('branchTabsWrap').style.display='none';}
+  
+  // Save login session if "Remember me" is checked
+  if (document.getElementById('rememberMe').checked) {
+    saveLoginSession(r, b);
+  }
+  
+  init();
+}
+function logout(){
+  clearLoginSession();
+  role = '';
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('loginOverlay').classList.remove('hidden');
+  document.getElementById('passInput').value = '';
+}
+function toggleTheme(){
+  const t=document.documentElement.getAttribute('data-theme');
+  const newTheme = t==='light'?'dark':'light';
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('acb3_theme', newTheme);
+  refresh();
+}
+
+// ======================================================
+// INIT
+// ======================================================
+function init(){
+  // Restore theme
+  const savedTheme = localStorage.getItem('acb3_theme');
+  if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+  
+  updateCounts(); fillAllSelects(); refresh();
+}
+function updateCounts(){
+  document.getElementById('cntAll').textContent=employees.length;
+  document.getElementById('cntAC').textContent=employees.filter(e=>e.branch==='ASTRON CHOWK').length;
+  document.getElementById('cntGR').textContent=employees.filter(e=>e.branch==='GONDAL ROAD BRANCH').length;
+  document.getElementById('cntMB').textContent=employees.filter(e=>e.branch==='SANALA ROAD BRANCH (MORBI)').length;
+}
+function getFiltered(){
+  return curBranch==='all'?employees:employees.filter(e=>e.branch===curBranch);
+}
+function save(){
+  localStorage.setItem('acb3_emp',JSON.stringify(employees));
+  localStorage.setItem('acb3_tx',JSON.stringify(txData));
+  localStorage.setItem('acb3_brand',JSON.stringify(brandBranchData));
+  // Sync to Firebase
+  syncToFirebase();
+}
+
+// ======================================================
+// SWITCH
+// ======================================================
+function switchBranch(b){
+  curBranch=b;
+  document.querySelectorAll('.btab').forEach(t=>t.classList.remove('active'));
+  const tabs=document.querySelectorAll('.btab');
+  const idx=['all','ASTRON CHOWK','GONDAL ROAD BRANCH','SANALA ROAD BRANCH (MORBI)'].indexOf(b);
+  if(tabs[idx])tabs[idx].classList.add('active');
+  document.getElementById('dBranch').textContent=b==='all'?'All Branches':(BRANCH_LABELS[b]||b);
+  fillAllSelects(); refresh();
+}
+function switchSec(el,sec){
+  curSec=sec;
+  document.querySelectorAll('.stab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('sec-'+sec).classList.add('active');
+  refresh();
+}
+function clearDates(){document.getElementById('dFrom').value='';document.getElementById('dTo').value='';document.getElementById('dLbl').textContent='';refresh();}
+
+// ======================================================
+// REFRESH
+// ======================================================
+function refresh(){
+  const data=getFiltered();
+  if(curSec==='dashboard'){renderKPIs(data);renderTbl(data);renderDashCharts(data);}
+  else if(curSec==='comparison'){renderComparison(data);}
+  else if(curSec==='brand'){renderBrand();}
+  else if(curSec==='update'){renderAchOvw();refreshAchSelects();}
+  else if(curSec==='admin'){renderTgtSum();}
+  else if(curSec==='mehul'){renderMehul();}
+}
+
+// ======================================================
+// FORMATTING
+// ======================================================
+function f(n){return Math.round(n).toLocaleString('en-IN');}
+function fD(n){return n.toFixed(1);}
+function gc(){return{text:document.documentElement.getAttribute('data-theme')==='light'?'#0f1626':'#e4ecf7',grid:document.documentElement.getAttribute('data-theme')==='light'?'#d0d8ec':'#253350'};}
+function dc(c){if(charts[c]){charts[c].destroy();delete charts[c];}}
+
+// ======================================================
+// KPIs
+// ======================================================
+function renderKPIs(data){
+  const tGP=data.reduce((s,e)=>s+e.gpTarget,0);
+  const aGP=data.reduce((s,e)=>s+e.gpAch,0);
+  const tQ=data.reduce((s,e)=>s+e.qtyTarget,0);
+  const aQ=data.reduce((s,e)=>s+e.qtyAch,0);
+  const tSV=data.reduce((s,e)=>s+e.samsungValTarget,0);
+  const aSV=data.reduce((s,e)=>s+e.samsungValAch,0);
+  const aSQ=data.reduce((s,e)=>s+e.samsungQtyAch,0);
+  const tInc=data.reduce((s,e)=>s+calcInc(e).total,0);
+  const gpP=tGP>0?((aGP/tGP)*100):0;
+  const qP=tQ>0?((aQ/tQ)*100):0;
+  const svP=tSV>0?((aSV/tSV)*100):0;
+  const gpBTD=Math.max(tGP-aGP,0);
+  const qBTD=Math.max(tQ-aQ,0);
+  const svBTD=Math.max(tSV-aSV,0);
+  document.getElementById('kpiWrap').innerHTML=`
+    <div class="kcard"><div class="kl">GP Target</div><div class="kv">₹${f(tGP)}</div><div class="ks">Achieved: <b class="tc">₹${f(aGP)}</b></div><div class="pbar"><div class="pfill pteal" style="width:${Math.min(gpP,100)}%"></div></div></div>
+    <div class="kcard"><div class="kl">GP Achieved</div><div class="kv tc">₹${f(aGP)}</div><div class="ks">Remaining: <b class="rc">₹${f(gpBTD)}</b> &nbsp; <span class="pill ${gpP>=95?'pg':gpP>=80?'pa':'pr'}">${fD(gpP)}%</span></div></div>
+    <div class="kcard"><div class="kl">Qty Achieved</div><div class="kv">${f(aQ)} / ${f(tQ)}</div><div class="ks">Remaining: <b class="rc">${f(qBTD)} PCS</b> &nbsp; <span class="pill ${qP>=95?'pg':qP>=80?'pa':'pr'}">${fD(qP)}%</span></div><div class="pbar"><div class="pfill ${qP>=80?'pteal':qP>=60?'pamber':'pred'}" style="width:${Math.min(qP,100)}%"></div></div></div>
+    <div class="kcard" style="--kc1:var(--purple);--kc2:var(--blue)"><div class="kl">Samsung Val Target</div><div class="kv">₹${f(tSV)}</div><div class="ks">Achieved: <b class="bc">₹${f(aSV)}</b></div><div class="pbar"><div class="pfill ppurp" style="width:${Math.min(svP,100)}%"></div></div></div>
+    <div class="kcard" style="--kc1:var(--purple);--kc2:var(--blue)"><div class="kl">Samsung Achieved</div><div class="kv bc">₹${f(aSV)}</div><div class="ks">Qty: <b>${f(aSQ)} PCS</b> &nbsp; Remaining: <b class="rc">₹${f(svBTD)}</b> &nbsp; <span class="pill ${svP>=100?'pg':svP>=80?'pa':'pr'}">${fD(svP)}%</span></div></div>
+    <div class="kcard" style="--kc1:var(--amber);--kc2:var(--red)"><div class="kl">Est. Total Incentive</div><div class="kv ac">₹${f(tInc)}</div><div class="ks">${data.length} employees across branches</div></div>
+  `;
+}
+
+// ======================================================
+// TABLE
+// ======================================================
+function renderTbl(data){
+  const tb=document.getElementById('tblBody'); tb.innerHTML='';
+  data.forEach(e=>{
+    const inc=calcInc(e);
+    const iniName=e.name.split(' ').map(n=>n[0]).join('').substr(0,2).toUpperCase();
+    const gC=inc.gpP>=95?'tc':inc.gpP>=80?'ac':'rc';
+    const qC=inc.qP>=95?'tc':inc.qP>=80?'ac':'rc';
+    const st=inc.gpP>=95?'<span class="pill pg">Achieved</span>':inc.gpP>=80?'<span class="pill pa">In Progress</span>':'<span class="pill pr">At Risk</span>';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><div class="ecell"><div class="av">${iniName}</div><div><div class="en">${e.name}</div><div class="es">${BRANCH_LABELS[e.branch]||e.branch}</div></div></div></td>
+      <td><span class="pill pb">${BRANCH_LABELS[e.branch]||e.branch}</span></td>
+      <td style="font-size:.78rem;color:var(--t3)">${e.manager}</td>
+      <td class="mono">₹${f(e.gpTarget)}</td>
+      <td class="mono tc">₹${f(e.gpAch)}</td>
+      <td class="mono rc">₹${f(inc.gpBTD)}</td>
+      <td class="mono ${gC}">${fD(inc.gpP)}%</td>
+      <td class="mono">${e.qtyTarget}</td>
+      <td class="mono tc">${e.qtyAch}</td>
+      <td class="mono rc">${inc.qBTD}</td>
+      <td class="mono ${qC}">${fD(inc.qP)}%</td>
+      <td class="mono">₹${f(e.samsungValTarget)}</td>
+      <td class="mono bc">₹${f(e.samsungValAch)}</td>
+      <td class="mono rc">₹${f(inc.svBTD)}</td>
+      <td class="mono">${e.samsungQtyAch} PCS</td>
+      <td class="mono ac">₹${f(inc.gpBTD)}</td>
+      <td class="mono ac">${inc.qBTD}</td>
+      <td class="mono">${f(inc.pdGP)}</td>
+      <td class="mono">${inc.pdQty}</td>
+      <td class="mono tc">₹${f(inc.gpInc)}<br><span style="color:var(--t3);font-size:.7rem">${(inc.gpR*100).toFixed(0)}%</span></td>
+      <td class="mono bc">₹${f(inc.qInc)}<br><span style="color:var(--t3);font-size:.7rem">${(inc.qR*100).toFixed(0)}%</span></td>
+      <td class="mono ac">₹${f(inc.total)}</td>
+      <td>${st}</td>`;
+    tb.appendChild(tr);
+  });
+}
+function filterTbl(){
+  const q=document.getElementById('srch').value.toLowerCase();
+  document.querySelectorAll('#tblBody tr').forEach(r=>{r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';});
+}
+
+// ======================================================
+// DASHBOARD CHARTS
+// ======================================================
+function renderDashCharts(data){
+  data=data||getFiltered();
+  dc('bar');dc('pie');
+  const c=gc();
+  const metric=document.getElementById('chartMetric').value;
+  const labels=data.map(e=>e.name.split(' ')[0]);
+  const tgts=data.map(e=>metric==='gp'?e.gpTarget:metric==='qty'?e.qtyTarget:e.samsungValTarget);
+  const achs=data.map(e=>metric==='gp'?e.gpAch:metric==='qty'?e.qtyAch:e.samsungValAch);
+  charts.bar=new Chart(document.getElementById('barChart').getContext('2d'),{
+    type:'bar',data:{labels,datasets:[
+      {label:'Target',data:tgts,backgroundColor:'rgba(65,131,255,.5)',borderColor:'#4183ff',borderWidth:1.5,borderRadius:5},
+      {label:'Achieved',data:achs,backgroundColor:'rgba(0,200,150,.7)',borderColor:'#00c896',borderWidth:1.5,borderRadius:5}
+    ]},options:{responsive:true,plugins:{legend:{labels:{color:c.text,font:{family:'DM Sans'}}}},scales:{y:{ticks:{color:c.text},grid:{color:c.grid}},x:{ticks:{color:c.text,maxRotation:45},grid:{display:false}}}}
+  });
+  const branchGP={'ASTRON CHOWK':0,'GONDAL ROAD BRANCH':0,'SANALA ROAD BRANCH (MORBI)':0};
+  data.forEach(e=>{branchGP[e.branch]=(branchGP[e.branch]||0)+e.gpAch;});
+  const brKeys=Object.keys(branchGP).filter(b=>branchGP[b]>0);
+  charts.pie=new Chart(document.getElementById('pieChart').getContext('2d'),{
+    type:'doughnut',data:{labels:brKeys.map(b=>BRANCH_LABELS[b]||b),datasets:[{data:brKeys.map(b=>branchGP[b]),backgroundColor:['rgba(0,200,150,.8)','rgba(65,131,255,.8)','rgba(139,92,246,.8)'],borderWidth:2}]},
+    options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:c.text,padding:14,font:{family:'DM Sans'}}}}}
+  });
+}
+
+// ======================================================
+// COMPARISON
+// ======================================================
+function renderComparison(data){
+  data=data||getFiltered();
+  dc('branchCmp');dc('mgrCmp');
+  const c=gc();
+  const branches=['ASTRON CHOWK','GONDAL ROAD BRANCH','SANALA ROAD BRANCH (MORBI)'];
+  const bd=branches.map(b=>{
+    const emps=employees.filter(e=>e.branch===b);
+    const tG=emps.reduce((s,e)=>s+e.gpTarget,0),aG=emps.reduce((s,e)=>s+e.gpAch,0);
+    const tQ=emps.reduce((s,e)=>s+e.qtyTarget,0),aQ=emps.reduce((s,e)=>s+e.qtyAch,0);
+    return{branch:b,gpP:tG>0?(aG/tG*100):0,qP:tQ>0?(aQ/tQ*100):0,tG,aG,tQ,aQ};
+  });
+  charts.branchCmp=new Chart(document.getElementById('branchCmpChart').getContext('2d'),{
+    type:'bar',data:{labels:bd.map(b=>BRANCH_LABELS[b.branch]),datasets:[
+      {label:'GP Achievement %',data:bd.map(b=>parseFloat(b.gpP.toFixed(1))),backgroundColor:bd.map(b=>b.gpP>=95?'rgba(0,200,150,.8)':b.gpP>=80?'rgba(245,166,35,.8)':'rgba(255,77,77,.8)'),borderRadius:6}
+    ]},
+    options:{responsive:true,plugins:{legend:{labels:{color:c.text}}},scales:{y:{max:110,ticks:{color:c.text,callback:v=>v+'%'},grid:{color:c.grid}},x:{ticks:{color:c.text},grid:{display:false}}}}
+  });
+  // Manager comparison
+  const mm={};
+  data.forEach(e=>{if(!mm[e.manager])mm[e.manager]={tG:0,aG:0};mm[e.manager].tG+=e.gpTarget;mm[e.manager].aG+=e.gpAch;});
+  const mKeys=Object.keys(mm);
+  const mPcts=mKeys.map(m=>mm[m].tG>0?(mm[m].aG/mm[m].tG*100):0);
+  charts.mgrCmp=new Chart(document.getElementById('mgrChart').getContext('2d'),{
+    type:'bar',data:{labels:mKeys,datasets:[{label:'Team GP %',data:mPcts.map(p=>parseFloat(p.toFixed(1))),backgroundColor:mPcts.map(p=>p>=95?'rgba(0,200,150,.8)':p>=80?'rgba(245,166,35,.8)':'rgba(255,77,77,.8)'),borderRadius:6}]},
+    options:{responsive:true,plugins:{legend:{labels:{color:c.text}}},scales:{y:{max:110,ticks:{color:c.text,callback:v=>v+'%'},grid:{color:c.grid}},x:{ticks:{color:c.text,maxRotation:45},grid:{display:false}}}}
+  });
+  // Comparison cards
+  const cw=document.getElementById('cmpWrap'); cw.innerHTML='';
+  // Branch card
+  const bc=document.createElement('div');bc.className='cmp-card';
+  bc.innerHTML='<h4>Branch GP Achievement</h4>'+bd.map(b=>{
+    const p=b.gpP.toFixed(1);const col=b.gpP>=95?'var(--teal)':b.gpP>=80?'var(--amber)':'var(--red)';
+    return`<div class="cmp-row"><span class="cmp-nm">${BRANCH_LABELS[b.branch]}</span><div class="cmp-bw"><div class="cmp-bf" style="width:${Math.min(b.gpP,100)}%;background:${col}"></div></div><span class="cmp-pct" style="color:${col}">${p}%</span></div>`;
+  }).join('');
+  cw.appendChild(bc);
+  // Branch Samsung card
+  const sc=document.createElement('div');sc.className='cmp-card';
+  sc.innerHTML='<h4>Branch Samsung Achievement</h4>'+branches.map(br=>{
+    const emps=employees.filter(e=>e.branch===br);
+    const tS=emps.reduce((s,e)=>s+e.samsungValTarget,0),aS=emps.reduce((s,e)=>s+e.samsungValAch,0);
+    const p=tS>0?(aS/tS*100):0;const ps=p.toFixed(1);const col=p>=100?'var(--teal)':p>=80?'var(--amber)':'var(--red)';
+    return`<div class="cmp-row"><span class="cmp-nm">${BRANCH_LABELS[br]}</span><div class="cmp-bw"><div class="cmp-bf" style="width:${Math.min(p,100)}%;background:${col}"></div></div><span class="cmp-pct" style="color:${col}">${ps}%</span></div>`;
+  }).join('');
+  cw.appendChild(sc);
+  // Top employees
+  const sorted=[...data].sort((a,b)=>{const pa=a.gpTarget>0?a.gpAch/a.gpTarget:0;const pb=b.gpTarget>0?b.gpAch/b.gpTarget:0;return pb-pa;}).slice(0,10);
+  const ec=document.createElement('div');ec.className='cmp-card';
+  ec.innerHTML='<h4>Top 10 Employee GP Achievement</h4>'+sorted.map(e=>{
+    const p=e.gpTarget>0?(e.gpAch/e.gpTarget*100):0;const ps=p.toFixed(1);const col=p>=95?'var(--teal)':p>=80?'var(--amber)':'var(--red)';
+    return`<div class="cmp-row"><span class="cmp-nm">${e.name}</span><div class="cmp-bw"><div class="cmp-bf" style="width:${Math.min(p,100)}%;background:${col}"></div></div><span class="cmp-pct" style="color:${col}">${ps}%</span></div>`;
+  }).join('');
+  cw.appendChild(ec);
+  // Manager card
+  const mc=document.createElement('div');mc.className='cmp-card';
+  mc.innerHTML='<h4>Manager Team GP Achievement</h4>'+mKeys.map((m,i)=>{
+    const p=mPcts[i];const ps=p.toFixed(1);const col=p>=95?'var(--teal)':p>=80?'var(--amber)':'var(--red)';
+    return`<div class="cmp-row"><span class="cmp-nm">${m}</span><div class="cmp-bw"><div class="cmp-bf" style="width:${Math.min(p,100)}%;background:${col}"></div></div><span class="cmp-pct" style="color:${col}">${ps}%</span></div>`;
+  }).join('');
+  cw.appendChild(mc);
+}
+
+// ======================================================
+// BRAND & BRANCH
+// ======================================================
+function renderBrand(){
+  dc('brandVal');dc('brandQty');dc('branchRev');
+  const c=gc();
+  const src=curBranch==='all'?brandBranchData:brandBranchData.filter(b=>b.branch===curBranch);
+  const bMap={};src.forEach(r=>{if(!bMap[r.brand])bMap[r.brand]={val:0,qty:0,gp:0};bMap[r.brand].val+=r.val;bMap[r.brand].qty+=r.qty;bMap[r.brand].gp+=r.gp;});
+  const brands=Object.keys(bMap).sort((a,b)=>bMap[b].val-bMap[a].val);
+  const colors=['#00c896','#4183ff','#8b5cf6','#f5a623','#ff4d4d','#22d46c','#ec4899','#14b8a6','#f97316','#06b6d4','#a855f7','#eab308','#64748b','#ef4444'];
+  charts.brandVal=new Chart(document.getElementById('brandValChart').getContext('2d'),{
+    type:'bar',data:{labels:brands,datasets:[{label:'Sales Value (₹)',data:brands.map(b=>bMap[b].val),backgroundColor:brands.map((_,i)=>colors[i%colors.length]+'cc'),borderRadius:5}]},
+    options:{responsive:true,plugins:{legend:{labels:{color:c.text}}},scales:{y:{ticks:{color:c.text},grid:{color:c.grid}},x:{ticks:{color:c.text,maxRotation:45},grid:{display:false}}}}
+  });
+  charts.brandQty=new Chart(document.getElementById('brandQtyChart').getContext('2d'),{
+    type:'bar',data:{labels:brands,datasets:[{label:'Units Sold',data:brands.map(b=>bMap[b].qty),backgroundColor:brands.map((_,i)=>colors[i%colors.length]+'cc'),borderRadius:5}]},
+    options:{responsive:true,plugins:{legend:{labels:{color:c.text}}},scales:{y:{ticks:{color:c.text},grid:{color:c.grid}},x:{ticks:{color:c.text,maxRotation:45},grid:{display:false}}}}
+  });
+  const brMap={};src.forEach(r=>{brMap[r.branch]=(brMap[r.branch]||0)+r.val;});
+  const brKeys=Object.keys(brMap);
+  if(brKeys.length>0){
+    charts.branchRev=new Chart(document.getElementById('branchRevChart').getContext('2d'),{
+      type:'doughnut',data:{labels:brKeys.map(b=>BRANCH_LABELS[b]||b),datasets:[{data:brKeys.map(b=>brMap[b]),backgroundColor:['rgba(0,200,150,.8)','rgba(65,131,255,.8)','rgba(139,92,246,.8)'],borderWidth:2}]},
+      options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:c.text,padding:14}}}}
+    });
+  }
+  const btb=document.getElementById('brandTbl');btb.innerHTML='';
+  brands.forEach(brand=>{
+    src.filter(r=>r.brand===brand).forEach(r=>{
+      const gpP=r.val>0?(r.gp/r.val*100):0;
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td><b>${r.brand}</b></td><td><span class="pill pb">${BRANCH_LABELS[r.branch]||r.branch}</span></td><td class="mono">${r.qty}</td><td class="mono">₹${f(r.val)}</td><td class="mono ${r.gp>=0?'tc':'rc'}">₹${f(r.gp)}</td><td class="mono">${gpP.toFixed(1)}%</td>`;
+      btb.appendChild(tr);
+    });
+  });
+}
+
+// ======================================================
+// MEHULKAKA DASHBOARD
+// ======================================================
+function renderMehul(){
+  dc('mBranch');dc('mBrand');
+  const c=gc();
+  const mehulTx=txData.filter(t=>t.sp==='MEHULKAKA');
+  // KPIs
+  const totVal=mehulTx.reduce((s,t)=>s+t.val,0);
+  const totQty=mehulTx.reduce((s,t)=>s+t.qty,0);
+  const totGP=mehulTx.reduce((s,t)=>s+t.gp,0);
+  const branchBreak={'ASTRON CHOWK':{val:1254310,qty:41,gp:-33575},'GONDAL ROAD BRANCH':{val:654700,qty:31,gp:-8680},'SANALA ROAD BRANCH (MORBI)':{val:64999,qty:3,gp:-894}};
+  document.getElementById('mehulKpi').innerHTML=`
+    <div class="kcard" style="--kc1:var(--amber);--kc2:var(--red)"><div class="kl">Total Sales Value</div><div class="kv ac">₹${f(1974009)}</div><div class="ks">All branches combined</div></div>
+    <div class="kcard" style="--kc1:var(--amber);--kc2:var(--red)"><div class="kl">Total Qty Sold</div><div class="kv ac">75 PCS</div><div class="ks">Across 3 branches</div></div>
+    <div class="kcard" style="--kc1:var(--red);--kc2:var(--amber)"><div class="kl">Total GP</div><div class="kv rc">₹${f(-43149)}</div><div class="ks">Negative GP — pricing review needed</div></div>
+    <div class="kcard" style="--kc1:var(--amber);--kc2:var(--purple)"><div class="kl">Samsung Sales</div><div class="kv ac">₹${f(436000)}</div><div class="ks">13 Samsung units sold</div></div>
+    <div class="kcard" style="--kc1:var(--teal);--kc2:var(--blue)"><div class="kl">Astron Chowk</div><div class="kv">₹${f(1254310)}</div><div class="ks">41 PCS | GP: <span class="rc">₹${f(-33575)}</span></div></div>
+    <div class="kcard" style="--kc1:var(--blue);--kc2:var(--purple)"><div class="kl">Gondal Road</div><div class="kv">₹${f(654700)}</div><div class="ks">31 PCS | GP: <span class="rc">₹${f(-8680)}</span></div></div>
+  `;
+  // Charts
+  const brNames=['Astron Chowk','Gondal Road','Morbi'];
+  const brVals=[1254310,654700,64999];
+  const brGPs=[-33575,-8680,-894];
+  charts.mBranch=new Chart(document.getElementById('mehulBranchChart').getContext('2d'),{
+    type:'bar',data:{labels:brNames,datasets:[
+      {label:'Sales Value (₹)',data:brVals,backgroundColor:'rgba(245,166,35,.7)',borderRadius:5},
+      {label:'GP (₹)',data:brGPs,backgroundColor:'rgba(255,77,77,.7)',borderRadius:5}
+    ]},
+    options:{responsive:true,plugins:{legend:{labels:{color:c.text}}},scales:{y:{ticks:{color:c.text},grid:{color:c.grid}},x:{ticks:{color:c.text},grid:{display:false}}}}
+  });
+  // Brand breakdown for mehulkaka - from actual data
+  const brandMap={'SAMSUNG':{val:436000,qty:13},'OTHER':{val:1538009,qty:62}};
+  charts.mBrand=new Chart(document.getElementById('mehulBrandChart').getContext('2d'),{
+    type:'doughnut',data:{labels:Object.keys(brandMap),datasets:[{data:Object.values(brandMap).map(v=>v.val),backgroundColor:['rgba(0,200,150,.8)','rgba(65,131,255,.8)'],borderWidth:2}]},
+    options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:c.text,padding:14}}}}
+  });
+  // Table
+  const mt=document.getElementById('mehulTbl');mt.innerHTML='';
+  const rows=[
+    {br:'ASTRON CHOWK',brand:'SAMSUNG',model:'Multiple Samsung Models',date:'Apr 2026',qty:13,val:436000,gp:-10483,imei:'Multiple'},
+    {br:'ASTRON CHOWK',brand:'OTHER BRANDS',model:'Multiple Models',date:'Apr 2026',qty:28,val:818310,gp:-23092,imei:'Multiple'},
+    {br:'GONDAL ROAD BRANCH',brand:'SAMSUNG',model:'Multiple Samsung Models',date:'Apr 2026',qty:13,val:436000,gp:-8680,imei:'Multiple'},
+    {br:'GONDAL ROAD BRANCH',brand:'OTHER BRANDS',model:'Multiple Models',date:'Apr 2026',qty:18,val:218700,gp:0,imei:'Multiple'},
+    {br:'SANALA ROAD BRANCH (MORBI)',brand:'OTHER BRANDS',model:'Multiple Models',date:'Apr 2026',qty:3,val:64999,gp:-894,imei:'Multiple'},
+  ];
+  rows.forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><span class="pill pb">${BRANCH_LABELS[r.br]||r.br}</span></td><td><b>${r.brand}</b></td><td style="font-size:.78rem">${r.model}</td><td style="font-size:.78rem">${r.date}</td><td class="mono">${r.qty}</td><td class="mono ac">₹${f(r.val)}</td><td class="mono ${r.gp>=0?'tc':'rc'}">₹${f(r.gp)}</td><td style="font-size:.72rem;color:var(--t3)">${r.imei}</td>`;
+    mt.appendChild(tr);
+  });
+}
+
+// ======================================================
+// ADMIN: TARGETS
+// ======================================================
+function fillAllSelects(){
+  const br=document.getElementById('tgtBranch')?.value||'ASTRON CHOWK';
+  tgtBranchChange();
+  achBranchChange();
+}
+function tgtBranchChange(){
+  const br=document.getElementById('tgtBranch').value;
+  const mgrFG=document.getElementById('tgtMgrFG');
+  mgrFG.style.display=br==='ASTRON CHOWK'?'flex':'none';
+  const ms=document.getElementById('tgtMgr');
+  ms.innerHTML='<option value="">All</option>'+(MGRS[br]||[]).map(m=>`<option value="${m}">${m}</option>`).join('');
+  filterTgtEmpByMgr();
+}
+function filterTgtEmpByMgr(){
+  const br=document.getElementById('tgtBranch').value;
+  const mgr=document.getElementById('tgtMgr').value;
+  const sel=document.getElementById('tgtEmp');
+  sel.innerHTML='<option value="">-- Select --</option>';
+  employees.filter(e=>e.branch===br&&(mgr===''||e.manager===mgr)).forEach(e=>{
+    const o=document.createElement('option');o.value=e.id;o.textContent=e.name;sel.appendChild(o);
+  });
+}
+function loadTgt(){
+  const e=employees.find(e=>e.id===document.getElementById('tgtEmp').value);
+  if(!e)return;
+  document.getElementById('tgtGP').value=e.gpTarget;
+  document.getElementById('tgtQty').value=e.qtyTarget;
+  document.getElementById('tgtSV').value=e.samsungValTarget;
+  document.getElementById('tgtSQ').value=e.samsungQtyTarget||0;
+  document.getElementById('tgtAg').value=e.ageingTarget;
+}
+function saveTgt(){
+  const id=document.getElementById('tgtEmp').value;
+  const e=employees.find(e=>e.id===id);
+  if(!e){alert('Select an employee');return;}
+  e.gpTarget=parseFloat(document.getElementById('tgtGP').value)||0;
+  e.qtyTarget=parseFloat(document.getElementById('tgtQty').value)||0;
+  e.samsungValTarget=parseFloat(document.getElementById('tgtSV').value)||0;
+  e.samsungQtyTarget=parseFloat(document.getElementById('tgtSQ').value)||0;
+  e.ageingTarget=parseFloat(document.getElementById('tgtAg').value)||0;
+  save();alert('Targets saved & synced!');renderTgtSum();
+}
+function renderTgtSum(){
+  const tb=document.getElementById('tgtSumTbl');tb.innerHTML='';
+  const data=curBranch==='all'?employees:employees.filter(e=>e.branch===curBranch);
+  data.forEach(e=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><div class="ecell"><div class="av">${e.name.split(' ').map(n=>n[0]).join('').substr(0,2)}</div><div class="en">${e.name}</div></div></td>
+    <td><span class="pill pb">${BRANCH_LABELS[e.branch]||e.branch}</span></td><td style="font-size:.78rem">${e.manager}</td>
+    <td class="mono">₹${f(e.gpTarget)}</td><td class="mono">${e.qtyTarget}</td><td class="mono">₹${f(e.samsungValTarget)}</td><td class="mono">${e.samsungQtyTarget||0}</td><td class="mono">${e.ageingTarget}</td>
+    <td><button class="btn btn-s" onclick="editEmp('${e.id}')" style="padding:5px 10px;font-size:.72rem"><i class="fas fa-edit"></i></button></td>`;
+    tb.appendChild(tr);
+  });
+}
+function editEmp(id){
+  const e=employees.find(e=>e.id===id);
+  if(!e)return;
+  document.getElementById('tgtBranch').value=e.branch;
+  tgtBranchChange();
+  setTimeout(()=>{document.getElementById('tgtEmp').value=id;loadTgt();},50);
+  document.querySelector('.stab[data-sec="admin"]').click();
+}
+
+// ======================================================
+// UPDATE ACHIEVED
+// ======================================================
+function achBranchChange(){
+  const br=document.getElementById('achBranch').value;
+  const mFG=document.getElementById('achMgrFG');
+  mFG.style.display=br==='ASTRON CHOWK'?'flex':'none';
+  const ms=document.getElementById('achMgr');
+  ms.innerHTML='<option value="">All</option>'+(MGRS[br]||[]).map(m=>`<option value="${m}">${m}</option>`).join('');
+  filterAchEmpByMgr();
+}
+function filterAchEmpByMgr(){
+  const br=document.getElementById('achBranch').value;
+  const mgr=document.getElementById('achMgr').value;
+  const sel=document.getElementById('achEmp');
+  sel.innerHTML='<option value="">-- Select Employee --</option>';
+  employees.filter(e=>e.branch===br&&(mgr===''||e.manager===mgr)).forEach(e=>{
+    const o=document.createElement('option');o.value=e.id;o.textContent=`${e.name} (${e.manager})`;sel.appendChild(o);
+  });
+}
+function refreshAchSelects(){
+  achBranchChange();
+}
+function loadAch(){
+  const e=employees.find(e=>e.id===document.getElementById('achEmp').value);
+  if(!e)return;
+  document.getElementById('achGPTgt').value=e.gpTarget;
+  document.getElementById('achQtyTgt').value=e.qtyTarget;
+  document.getElementById('achGP').value=e.gpAch;
+  document.getElementById('achQty').value=e.qtyAch;
+  document.getElementById('achSV').value=e.samsungValAch;
+  document.getElementById('achSQ').value=e.samsungQtyAch;
+  document.getElementById('achAg').value=e.ageingAch;
+  recalcBTD();
+}
+function recalcBTD(){
+  const gp=parseFloat(document.getElementById('achGP').value)||0;
+  const qty=parseFloat(document.getElementById('achQty').value)||0;
+  const gpT=parseFloat(document.getElementById('achGPTgt').value)||0;
+  const qtyT=parseFloat(document.getElementById('achQtyTgt').value)||0;
+  const gpBTD=Math.max(gpT-gp,0);
+  const qBTD=Math.max(qtyT-qty,0);
+  document.getElementById('achGPBTD').value=gpBTD;
+  document.getElementById('achQtyBTD').value=qBTD;
+  document.getElementById('achPDGP').value=DAYS_REMAINING>0?Math.round(gpBTD/DAYS_REMAINING):0;
+  document.getElementById('achPDQty').value=DAYS_REMAINING>0?parseFloat((qBTD/DAYS_REMAINING).toFixed(2)):0;
+  // Preview incentive
+  const empId=document.getElementById('achEmp').value;
+  const emp=employees.find(e=>e.id===empId);
+  if(emp){
+    const tempEmp={...emp,gpAch:gp,qtyAch:qty};
+    const inc=calcInc(tempEmp);
+    document.getElementById('achPreview').style.display='block';
+    document.getElementById('achPreviewGrid').innerHTML=`
+      <div><div style="font-size:.68rem;color:var(--t3);margin-bottom:4px">GP%</div><div class="mono ${inc.gpP>=95?'tc':inc.gpP>=80?'ac':'rc'}">${fD(inc.gpP)}%</div></div>
+      <div><div style="font-size:.68rem;color:var(--t3);margin-bottom:4px">Slab</div><div class="mono ac">${inc.slab}</div></div>
+      <div><div style="font-size:.68rem;color:var(--t3);margin-bottom:4px">GP Incentive</div><div class="mono tc">₹${f(inc.gpInc)}</div></div>
+      <div><div style="font-size:.68rem;color:var(--t3);margin-bottom:4px">Qty Incentive</div><div class="mono bc">₹${f(inc.qInc)}</div></div>
+      <div><div style="font-size:.68rem;color:var(--t3);margin-bottom:4px">Total Incentive</div><div class="mono ac">₹${f(inc.total)}</div></div>
+    `;
+  }
+}
+['achGP','achQty'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('input',recalcBTD);});
+function saveAch(){
+  const id=document.getElementById('achEmp').value;
+  const e=employees.find(e=>e.id===id);
+  if(!e){alert('Select an employee');return;}
+  e.gpAch=parseFloat(document.getElementById('achGP').value)||0;
+  e.qtyAch=parseInt(document.getElementById('achQty').value)||0;
+  e.samsungValAch=parseFloat(document.getElementById('achSV').value)||0;
+  e.samsungQtyAch=parseInt(document.getElementById('achSQ').value)||0;
+  e.ageingAch=parseInt(document.getElementById('achAg').value)||0;
+  save();alert('Achieved data saved & synced!');renderAchOvw();
+}
+function renderAchOvw(){
+  const tb=document.getElementById('achOvwTbl');tb.innerHTML='';
+  const data=curBranch==='all'?employees:employees.filter(e=>e.branch===curBranch);
+  data.forEach(e=>{
+    const inc=calcInc(e);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><div class="ecell"><div class="av">${e.name.split(' ').map(n=>n[0]).join('').substr(0,2)}</div><div class="en">${e.name}</div></div></td>
+      <td><span class="pill pb" style="font-size:.68rem">${BRANCH_LABELS[e.branch]||e.branch}</span></td>
+      <td style="font-size:.72rem;color:var(--t3)">${e.manager}</td>
+      <td class="mono">₹${f(e.gpTarget)}</td>
+      <td class="mono tc">₹${f(e.gpAch)}</td>
+      <td class="mono ac">₹${f(inc.gpBTD)}</td>
+      <td class="mono">${f(inc.pdGP)}/day</td>
+      <td class="mono">${e.qtyTarget}</td>
+      <td class="mono tc">${e.qtyAch}</td>
+      <td class="mono ac">${inc.qBTD}</td>
+      <td class="mono">${inc.pdQty}/day</td>
+      <td class="mono">₹${f(e.samsungValTarget)}</td>
+      <td class="mono bc">₹${f(e.samsungValAch)}</td>
+      <td class="mono rc">₹${f(inc.svBTD)}</td>
+      <td class="mono">${e.samsungQtyAch} PCS</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+// ======================================================
+// ADD EMPLOYEE
+// ======================================================
+function updateNewMgrList(){
+  const br=document.getElementById('newBranch').value;
+  document.getElementById('newMgr').innerHTML=(MGRS[br]||[]).map(m=>`<option value="${m}">${m}</option>`).join('');
+}
+function openAddEmp(){updateNewMgrList();document.getElementById('addEmpModal').classList.add('active');}
+function closeModal(){document.getElementById('addEmpModal').classList.remove('active');}
+function addEmp(){
+  const name=document.getElementById('newName').value.trim().toUpperCase();
+  if(!name){alert('Enter name');return;}
+  const branch=document.getElementById('newBranch').value;
+  const mgr=document.getElementById('newMgr').value;
+  const id=`NEW-${name.split(' ')[0]}-${Date.now()}`;
+  employees.push({id,name,branch,manager:mgr,gpTarget:0,qtyTarget:0,samsungValTarget:0,samsungQtyTarget:0,ageingTarget:0,gpAch:0,qtyAch:0,samsungValAch:0,samsungQtyAch:0,ageingAch:0,salesVal:0});
+  save();updateCounts();fillAllSelects();closeModal();refresh();
+  document.getElementById('newName').value='';
+}
+
+// ======================================================
+// EXCEL IMPORT
+// ======================================================
+function importExcel(event){
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    let updated=0;
+    wb.SheetNames.forEach(sn=>{
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:''});
+      // Try sheet1-style (transaction data)
+      if(rows.length>0&&rows[0]['Salesperson']!==undefined){
+        // Reset existing achieved
+        const newBrand={};
+        rows.forEach(r=>{
+          const sp=String(r['Salesperson']||'').trim();
+          const br=String(r['Branch']||'').trim();
+          const brand=String(r['Brand']||'').trim();
+          const qty=(parseFloat(r['Sales Qty.'])||0)-(parseFloat(r['Sales Return Qty.'])||0);
+          const val=(parseFloat(r['Sales Value'])||0)-(parseFloat(r['Sales Return Value'])||0);
+          const gp=parseFloat(r['Profit Amt.'])||0;
+          // Match employee
+          const emp=employees.find(e=>{
+            const spClean=sp.replace(/^\d+\s*-\s*/,'').toLowerCase().trim();
+            return e.name.toLowerCase()===spClean||spClean.includes(e.name.toLowerCase().split(' ')[0].toLowerCase());
+          });
+          if(emp){emp.gpAch=(emp.gpAch||0)+gp;emp.qtyAch=(emp.qtyAch||0)+qty;emp.salesVal=(emp.salesVal||0)+val;if(brand==='SAMSUNG'){emp.samsungValAch=(emp.samsungValAch||0)+val;emp.samsungQtyAch=(emp.samsungQtyAch||0)+qty;}updated++;}
+          // Brand data
+          const bKey=brand+'|'+br;
+          if(!newBrand[bKey])newBrand[bKey]={brand,branch:br,val:0,qty:0,gp:0};
+          newBrand[bKey].val+=val;newBrand[bKey].qty+=qty;newBrand[bKey].gp+=gp;
+          // MEHULKAKA
+          if(sp.toUpperCase()==='MEHULKAKA'){
+            txData.push({sp:'MEHULKAKA',branch:br,brand,model:String(r['Item/Model']||''),date:String(r['Doc. Date']||''),qty,val,gp,imei:String(r['IMEI NO']||'')});
+          }
+        });
+        brandBranchData=Object.values(newBrand);
+      }
+    });
+    save();alert(`Imported & Synced! Updated ${updated} employee records.`);refresh();
+    event.target.value='';
+  };
+  reader.readAsArrayBuffer(file);
+}
+function importTargets(event){
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    let updated=0;
+    wb.SheetNames.forEach(sn=>{
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:''});
+      rows.forEach(r=>{
+        const name=String(r['Employee Name']||r['Name']||'').trim().toUpperCase();
+        if(!name)return;
+        const emp=employees.find(e=>e.name.toUpperCase()===name||name.includes(e.name.toUpperCase().split(' ')[0]));
+        if(emp){
+          if(r['GP Target'])emp.gpTarget=parseFloat(r['GP Target'])||emp.gpTarget;
+          if(r['Qty Target'])emp.qtyTarget=parseFloat(r['Qty Target'])||emp.qtyTarget;
+          if(r['Samsung Val Target'])emp.samsungValTarget=parseFloat(r['Samsung Val Target'])||emp.samsungValTarget;
+          if(r['Samsung Qty Target'])emp.samsungQtyTarget=parseFloat(r['Samsung Qty Target'])||emp.samsungQtyTarget;
+          if(r['Ageing Target'])emp.ageingTarget=parseFloat(r['Ageing Target'])||emp.ageingTarget;
+          if(r['Manager'])emp.manager=String(r['Manager']).trim();
+          updated++;
+        }
+      });
+    });
+    save();alert(`Targets updated & synced for ${updated} employees.`);renderTgtSum();
+    event.target.value='';
+  };
+  reader.readAsArrayBuffer(file);
+}
+function importAchieved(event){
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    let updated=0;
+    wb.SheetNames.forEach(sn=>{
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:''});
+      rows.forEach(r=>{
+        const name=String(r['SALES PERSON']||r['Sales Person']||r['Employee']||'').replace(/^\d+\s*-\s*/,'').trim().toUpperCase();
+        if(!name)return;
+        const emp=employees.find(e=>e.name.toUpperCase()===name||name.includes(e.name.toUpperCase().split(' ')[0]));
+        if(emp){
+          if(r['GP ACH']!==undefined&&r['GP ACH']!=='')emp.gpAch=parseFloat(r['GP ACH'])||emp.gpAch;
+          if(r['QTY ACH']!==undefined&&r['QTY ACH']!=='')emp.qtyAch=parseInt(r['QTY ACH'])||emp.qtyAch;
+          if(r['SAM VAL ACH']!==undefined&&r['SAM VAL ACH']!=='')emp.samsungValAch=parseFloat(r['SAM VAL ACH'])||emp.samsungValAch;
+          updated++;
+        }
+      });
+    });
+    save();alert(`Achieved updated & synced for ${updated} employees.`);refresh();
+    event.target.value='';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ======================================================
+// EXPORT
+// ======================================================
+function exportReport(){
+  const data=getFiltered();
+  const rows=data.map(e=>{
+    const inc=calcInc(e);
+    return{'Employee':e.name,'Branch':BRANCH_LABELS[e.branch]||e.branch,'Manager':e.manager,
+      'GP Target':e.gpTarget,'GP Achieved':e.gpAch,'GP Remaining':inc.gpBTD,'GP%':fD(inc.gpP)+'%',
+      'GP BTD':inc.gpBTD,'Per Day GP Req':inc.pdGP,
+      'Qty Target':e.qtyTarget,'Qty Achieved':e.qtyAch,'Qty Remaining':inc.qBTD,'Qty%':fD(inc.qP)+'%',
+      'Qty BTD':inc.qBTD,'Per Day Qty Req':inc.pdQty,
+      'Samsung Val Target':e.samsungValTarget,'Samsung Val Achieved':e.samsungValAch,'Samsung Val Remaining':inc.svBTD,'Samsung Qty':e.samsungQtyAch,
+      'GP Incentive Rate':(inc.gpR*100)+'%','GP Incentive':inc.gpInc,
+      'Qty Incentive Rate':(inc.qR*100)+'%','Qty Incentive':inc.qInc,
+      'Total Incentive':inc.total,'Slab':inc.slab
+    };
+  });
+  const ws=XLSX.utils.json_to_sheet(rows);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'GP Report');
+  XLSX.writeFile(wb,`ACB_GP_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+}
+
+window.onclick=e=>{if(e.target===document.getElementById('addEmpModal'))closeModal();};
+
+// ======================================================
+// STARTUP — Check Firebase config, then check login
+// ======================================================
+(function startup() {
+  const savedConfig = getStoredFirebaseConfig();
+  const skip = localStorage.getItem('acb3_firebase_skip');
+  
+  if (savedConfig) {
+    // Firebase config exists, initialize
+    initFirebase(savedConfig);
+  } else if (skip) {
+    // User chose offline mode
+    updateSyncBadge('offline', 'Offline Mode');
+    checkSavedLogin();
+  } else {
+    // First time — show Firebase setup
+    document.getElementById('firebaseSetup').classList.add('active');
+    // Still save initial data locally
+    if (!localStorage.getItem('acb3_emp')) {
+      localStorage.setItem('acb3_emp', JSON.stringify(employees));
+      localStorage.setItem('acb3_tx', JSON.stringify(txData));
+      localStorage.setItem('acb3_brand', JSON.stringify(brandBranchData));
+    }
+  }
+})();
+</script>
+</body>
+</html>
